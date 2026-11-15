@@ -1,0 +1,9 @@
+✅ - Pass, ⛔ - Fail, ⏺️ - No test, ⚠️ - Missing aliases
+Warning: ⛔ getscriptclosure failed: Constants is not a valid member of Folder "CoreGui.RobloxGui.Modules.Common"
+✅ setscriptable • nil
+⏺️ WebSocket
+Warning: ⛔ WebSocket.connect failed: Script:6: the websocket handshake failed at step 2 (12002)
+UNC Summary
+✅ Tested with a 98% success rate (80 out of 82)
+⛔ 2 tests failed
+⚠️ 0 globals are missing aliases

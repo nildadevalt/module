@@ -1,0 +1,17 @@
+{
+  "status": "invalid",
+  "place_id": 90441122676618,
+  "error": "The suite finished without a valid summary",
+  "checks_received": 0,
+  "failed_checks": [],
+  "completion_marker_received": true,
+  "disconnected": false,
+  "player_log": null,
+  "evidence_log": ".maintenance\\sunc-early-9.log",
+  "completed_utc": "2026-11-14T11:05:41.632414+00:00",
+  "deployed_module": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+    "bytes": 4240896,
+    "sha256": "8516aa53bba4063b9ac89b7800e0db4e96d2beda316198fd96f243a1b842ffac"
+  }
+}

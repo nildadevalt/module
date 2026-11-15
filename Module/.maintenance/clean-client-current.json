@@ -1,0 +1,27 @@
+{
+    "started_utc":  "2026-11-14T09:20:39.853579+00:00",
+    "place_id":  90441122676618,
+    "module_temporarily_disabled":  true,
+    "executor_scripts_submitted":  false,
+    "player_log":  "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T092041Z_Player_28265_last.log",
+    "status":  "no_kick_observed",
+    "observed_joined_seconds":  60.11,
+    "processes_at_end":  [
+                             {
+                                 "pid":  20272,
+                                 "path":  "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\RobloxPlayerBeta.exe",
+                                 "module_loaded":  false,
+                                 "inspection_succeeded":  true
+                             }
+                         ],
+    "module_loaded":  false,
+    "completed_utc":  "2026-11-14T09:21:46.544017+00:00",
+    "evidence_log":  "D:\\NERO\\ModuleV2\\.maintenance\\clean-client-current.log",
+    "cleanup":  {
+                    "roblox_closed":  true,
+                    "module_restored":  true,
+                    "diagnostic_backup_removed":  true,
+                    "restored_module_sha256":  "e1debc3b2a64d5d2df84233fe2e46a11c4a0a36f3b08fed40aef3e3b2f395528",
+                    "matches_iteration_28":  true
+                }
+}

@@ -1,0 +1,23 @@
+{
+  "status": "failed",
+  "place_id": 90441122676618,
+  "error": "85/86 passed; failures: replicatesignal",
+  "checks_received": 86,
+  "failed_checks": [
+    "replicatesignal"
+  ],
+  "completion_marker_received": true,
+  "disconnected": false,
+  "ran": 86,
+  "passed": 85,
+  "failed": 1,
+  "percent": 98,
+  "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T103912Z_Player_0CAE1_last.log",
+  "evidence_log": ".maintenance\\sunc-repsig-1.log",
+  "completed_utc": "2026-11-14T10:40:42.312310+00:00",
+  "deployed_module": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+    "bytes": 3729920,
+    "sha256": "e6ab01f5b0ce04e96e98d1c82999d86a76868927495938dd0890ffa760d48c18"
+  }
+}

@@ -1,0 +1,48 @@
+Info: DataModel Loading rbxasset://places/Mobile.rbxl
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error url:`https://apis.roblox.com/attribution/v1/events/post-authentication`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error code:`nil`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error body:`nil`
+870906
+here 111
+successfully ran test script
+Warning: ok
+[LUARMOR] callback fired
+Superflow VM test begin  any errors = contact f.e.d.e.r.a.l on discord
+Executor:  Paradox 1.0
+vmenter executed
+preset was HIGH
+all numbers should be printed in correct order.
+UNLOCK_BRANCH_IF_EQ PASS
+1 C
+2 true
+3 Long string!!
+4
+5 nil
+6
+6.5 69 3
+Warning:
+7
+8
+jump_to 'nine' executed
+9
+10
+11
+Warning: Remote bytecode loader test begin. Fetching shit from api.luarmor.net/files/v3/l/test.cock
+Warning: DRM RNG: DISABLED. keys are static
+Warning: Decryption keys: [1]= 69691234
+Warning: httpgetting test.cock
+test.cock retrieved
+ret table: table: 0xb978241a7d067d8f
+Warning: control flow was OEP->11->3->28->7->40->17->30->nil.  nil nil
+true 12
+non-encrypted scope 1234
+Hello from encrypted scope! code must have been received from remote server.
+offset: 0 rn here
+13
+14
+15 15 15
+16
+17
+18 SUCCESS
+superflow test pass.
+done in 1.414842199999839

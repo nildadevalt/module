@@ -1,0 +1,16 @@
+{
+  "place_id": 90441122676618,
+  "ran": 86,
+  "passed": 86,
+  "failed": 0,
+  "percent": 100,
+  "status": "passed",
+  "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T225758Z_Player_5BFE8_last.log",
+  "evidence_log": "d:\\NERO\\ModuleV2\\.maintenance\\sunc-check-restored.log",
+  "completed_utc": "2026-11-14T22:59:20.551067+00:00",
+  "deployed_module": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+    "bytes": 4235264,
+    "sha256": "d9d2d33fefcf4252b2dfeaa43c407bb29a5ce3a2492bbd29607f30227f4f951b"
+  }
+}

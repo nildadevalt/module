@@ -1,0 +1,109 @@
+Info: DataModel Loading rbxasset://places/Mobile.rbxl
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error url:`https://apis.roblox.com/attribution/v1/events/post-authentication`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error code:`nil`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error body:`nil`
+
+UNC Environment Check
+✅ - Pass, ⛔ - Fail, ⏺️ - No test, ⚠️ - Missing aliases
+✅ cache.invalidate • nil
+✅ cache.iscached • nil
+✅ cache.replace • nil
+✅ cloneref • nil
+✅ compareinstances • nil
+✅ checkcaller • nil
+✅ clonefunction • nil
+⏺️ getcallingscript
+Warning: ⛔ getscriptclosure failed: Constants is not a valid member of Folder "CoreGui.RobloxGui.Modules.Common"
+✅ hookfunction • nil
+✅ iscclosure • nil
+✅ islclosure • nil
+✅ isexecutorclosure • nil
+✅ loadstring • nil
+✅ newcclosure • nil
+⏺️ rconsoleclear
+⏺️ rconsolecreate
+⏺️ rconsoledestroy
+⏺️ rconsoleinput
+⏺️ rconsoleprint
+⏺️ rconsolesettitle
+✅ crypt.base64encode • nil
+✅ crypt.base64decode • nil
+✅ crypt.encrypt • nil
+✅ crypt.decrypt • nil
+✅ crypt.generatebytes • nil
+✅ crypt.generatekey • nil
+✅ crypt.hash • nil
+✅ debug.getconstant • nil
+✅ debug.getconstants • nil
+✅ debug.getinfo • nil
+✅ debug.getproto • Proto return values are disabled on this executor
+✅ debug.getprotos • Proto return values are disabled on this executor
+✅ debug.getstack • nil
+✅ debug.getupvalue • nil
+✅ debug.getupvalues • nil
+✅ debug.setconstant • nil
+✅ debug.setstack • nil
+✅ debug.setupvalue • nil
+✅ readfile • nil
+✅ listfiles • nil
+✅ writefile • nil
+✅ makefolder • nil
+✅ appendfile • nil
+✅ isfile • nil
+✅ isfolder • nil
+✅ delfolder • nil
+✅ delfile • nil
+⏺️ dofile
+✅ isrbxactive • nil
+⏺️ mouse1click
+⏺️ mouse1press
+⏺️ mouse1release
+⏺️ mouse2click
+⏺️ mouse2press
+⏺️ mouse2release
+⏺️ mousemoveabs
+⏺️ mousemoverel
+⏺️ mousescroll
+✅ fireclickdetector • nil
+✅ getcallbackvalue • nil
+✅ getconnections • nil
+✅ getcustomasset • nil
+✅ gethiddenproperty • nil
+✅ sethiddenproperty • nil
+✅ gethui • nil
+✅ getinstances • nil
+✅ getnilinstances • nil
+✅ isscriptable • nil
+Warning: ⛔ setscriptable failed: Script:608: ⚠️⚠️ setscriptable persists between unique instances ⚠️⚠️
+⏺️ setrbxclipboard
+✅ getrawmetatable • nil
+✅ hookmetamethod • nil
+✅ getnamecallmethod • nil
+✅ isreadonly • nil
+✅ setrawmetatable • Returned the original object
+✅ setreadonly • nil
+✅ identifyexecutor • Returns version as a string
+✅ lz4compress • nil
+✅ lz4decompress • nil
+⏺️ messagebox
+⏺️ queue_on_teleport
+⏺️ setclipboard
+✅ getgc • nil
+✅ getgenv • nil
+✅ getloadedmodules • nil
+✅ getrenv • nil
+✅ getrunningscripts • nil
+✅ getscriptbytecode • nil
+✅ getscripthash • nil
+✅ getscripts • nil
+✅ getsenv • nil
+✅ getthreadidentity • nil
+✅ setthreadidentity • nil
+⏺️ Drawing
+✅ Drawing.new • nil
+✅ Drawing.Fonts • nil
+✅ isrenderobj • nil
+✅ getrenderproperty • nil
+✅ setrenderproperty • nil
+✅ cleardrawcache • nil
+⏺️ WebSocket

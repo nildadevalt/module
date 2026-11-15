@@ -1,0 +1,27 @@
+{
+  "status": "failed",
+  "place_id": 90441122676618,
+  "error": "81/86 passed; failures: WebSocket.connect, clonefunction, hookfunction, newcclosure, restorefunction",
+  "checks_received": 86,
+  "failed_checks": [
+    "WebSocket.connect",
+    "clonefunction",
+    "hookfunction",
+    "newcclosure",
+    "restorefunction"
+  ],
+  "completion_marker_received": true,
+  "disconnected": false,
+  "ran": 86,
+  "passed": 81,
+  "failed": 5,
+  "percent": 94,
+  "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T085520Z_Player_339DF_last.log",
+  "evidence_log": ".maintenance\\sunc-iteration-23.log",
+  "completed_utc": "2026-11-14T08:56:47.512121+00:00",
+  "deployed_module": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+    "bytes": 4237824,
+    "sha256": "d5b9fc2e9a7364f4d7651c0f01d46f16a121fd11cdc85be9e20ea9fbffb74dce"
+  }
+}

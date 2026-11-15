@@ -1,0 +1,4 @@
+Info: DataModel Loading rbxasset://places/Mobile.rbxl
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error url:`https://apis.roblox.com/attribution/v1/events/post-authentication`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error code:`nil`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error body:`nil`

@@ -1,0 +1,11 @@
+{
+  "project": "Kiet1308/Tovek",
+  "version": "v2.7",
+  "release": "https://github.com/Kiet1308/Tovek/releases/tag/v2.7",
+  "archive": "Tovek-V2.7-windows-x86_64.zip",
+  "archive_sha256": "e3642933f3f2c7ed4255fae87580f0b5281fff2ec0f27c7653a180d69ef3770f",
+  "deployed_file": "decompiler.exe",
+  "upstream_file": "web-server.exe",
+  "endpoint": "http://127.0.0.1:3000/decompile/raw",
+  "license": "LICENSE.txt"
+}

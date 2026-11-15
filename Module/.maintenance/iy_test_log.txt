@@ -1,0 +1,6 @@
+Info: DataModel Loading rbxasset://places/Mobile.rbxl
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error url:`https://apis.roblox.com/attribution/v1/events/post-authentication`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error code:`nil`
+Warning: [Roblox][CorePackages.LuauForgeChunks.bundled] HTTP error body:`nil`
+Error: Failed to load Workspace.Poiu122287.Accessory (dark_fae).Handle.SurfaceAppearance. PBR textures may not be visible in game.
+Error: [Roblox][CorePackages.Workspace.Packages._Workspace.CoreScriptsProfiler.CoreScriptsProfiler.ProfilerDataParser] CorePackages.Workspace.Packages._Workspace.CoreScriptsProfiler.CoreScriptsProfiler.ProfilerDataParser:177: attempt to iterate over a nil value

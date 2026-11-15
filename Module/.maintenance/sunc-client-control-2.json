@@ -1,0 +1,12 @@
+{
+  "place_id": 90441122676618,
+  "module_disabled": true,
+  "suite_submitted": false,
+  "observed_seconds": 45.2,
+  "disconnected": false,
+  "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T083447Z_Player_22407_last.log",
+  "evidence_log": ".maintenance\\sunc-client-control-2.log",
+  "module_restored": true,
+  "module_sha256": "fec655dc071ea622188029ef9730cdff40691e54e3ba613289d6a05b40e16b82",
+  "roblox_closed": true
+}

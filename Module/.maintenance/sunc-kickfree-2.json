@@ -1,0 +1,17 @@
+{
+  "status": "invalid",
+  "place_id": 90441122676618,
+  "error": "Roblox process exited; this run is invalid",
+  "checks_received": 0,
+  "failed_checks": [],
+  "completion_marker_received": false,
+  "disconnected": false,
+  "player_log": null,
+  "evidence_log": ".maintenance\\sunc-kickfree-2.log",
+  "completed_utc": "2026-11-14T11:33:22.100313+00:00",
+  "deployed_module": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+    "bytes": 4241408,
+    "sha256": "e30d0700936fc31343c72717e1e4546350a184dc80e31131a26655f190561bef"
+  }
+}

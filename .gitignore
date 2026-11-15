@@ -1,0 +1,54 @@
+﻿# Build artifacts
+**/build/
+**/.vsbuild/
+**/obj/
+**/bin/
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.iobj
+*.ipdb
+*.obj
+*.tlog
+*.log
+*.lastbuildstate
+*.cache
+*.FileListAbsolute.txt
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.vcxproj.user
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs / temp outputs
+auto-sunc-*.json
+agent_http_hit.txt
+agent_report.txt
+raknet_report*.txt
+unc_diag.txt
+ws_reliability.txt
+const_check.txt
+probe_*.txt
+smoke_*.txt
+*_last.log
+
+# Local runtime / binaries (deploy targets) - keep source scripts/docs
+Emulator/build/
+Emulator/.vsbuild/
+Module/build/
+Module/.vsbuild/
+UI/
+
+# OS
+Thumbs.db
+.DS_Store

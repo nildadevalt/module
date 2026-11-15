@@ -1,0 +1,53 @@
+{
+  "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+  "bytes": 4231168,
+  "sha256": "4a9ebd76424aba87fc99abfc7c5dbd298813ba035a32f8978a9391ad239da839",
+  "modified_utc": "2026-11-14T07:09:20.592023+00:00",
+  "architecture": "x64",
+  "dll": true,
+  "build_configuration": "Release|x64",
+  "build_log": "D:\\NERO\\ModuleV2\\.maintenance\\build-myriad-final.log",
+  "execution_test": {
+    "place_id": "79035306837882",
+    "suite": "D:\\NERO\\MacOS\\tests\\myriad_full.lua",
+    "suite_sha256": "7bc5ea307c252d51c341b084635003d9067764c1317b3d27ed8bcab392762981",
+    "version": "v1.8.2",
+    "result": "passed",
+    "ran": 140,
+    "passed": 140,
+    "failed": 0,
+    "completion": "MYR-DONE ran=140 200=140",
+    "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T071000Z_Player_FEC09_last.log",
+    "evidence_log": "D:\\NERO\\ModuleV2\\.maintenance\\myriad-console-evidence.log",
+    "suite_modified": false
+  },
+  "offsets": {
+    "source": "D:\\NERO\\Offsets\\hyperion_win_live.txt",
+    "sha256": "59eafdc3ee64e80b80985087b7c30e28cd4495cc39233b2e67707d095784b1eb"
+  },
+  "local_decompiler": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\decompiler.exe",
+    "version": "Tovek v2.7",
+    "sha256": "5e8e090766aeee227cc9579a1d086d825955e23a606795eeb58bab15c1990990",
+    "source": "https://github.com/Kiet1308/Tovek/releases/tag/v2.7",
+    "endpoint": "http://127.0.0.1:3000/decompile/raw"
+  },
+  "previous_artifact": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+    "bytes": 4223488,
+    "sha256": "44e3ba98212d4a2d86df0616287fbe1be6b452bfe3e6421c195cd6f8be5736f9",
+    "modified_utc": "2026-11-14T06:08:59.7148433Z",
+    "architecture": "x64",
+    "dll": true,
+    "execution_test": {
+      "place_id": "123974602339071",
+      "source": "loadstring(game:HttpGet(\"https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source\"))()",
+      "result": "passed",
+      "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T060916Z_Player_52770_last.log",
+      "gui_title": "Infinite Yield FE v6.4.2",
+      "visible": true,
+      "enabled": true,
+      "evidence_log": ".maintenance/infinite-yield-console-evidence.log"
+    }
+  }
+}

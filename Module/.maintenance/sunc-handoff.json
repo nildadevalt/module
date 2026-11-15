@@ -1,0 +1,92 @@
+{
+  "status": "live_validation_blocked",
+  "requested_sunc_percent": 100,
+  "current_dll_has_completed_sunc_score": false,
+  "completed_utc": "2026-11-14T08:37:31.314910+00:00",
+  "deployed_module": {
+    "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
+    "bytes": 4236288,
+    "sha256": "fec655dc071ea622188029ef9730cdff40691e54e3ba613289d6a05b40e16b82",
+    "configuration": "Release|x64",
+    "build_check": "passed",
+    "build_log": "D:\\NERO\\ModuleV2\\.maintenance\\build-sunc-handoff.log"
+  },
+  "latest_sunc_attempt": {
+    "status": "invalid",
+    "place_id": 90441122676618,
+    "error": "Roblox disconnected from the server; this run is invalid",
+    "checks_received": 0,
+    "failed_checks": [],
+    "completion_marker_received": false,
+    "disconnected": true,
+    "player_log": ".maintenance\\sunc-iteration-15.log",
+    "evidence_log": ".maintenance\\sunc-iteration-15.log",
+    "completed_utc": "2026-11-14T08:33:32.435224+00:00"
+  },
+  "roblox_error": {
+    "code": 268,
+    "message": "You have been kicked due to unexpected client behavior.",
+    "code_source": "User-provided screenshot; Player log records a server kick",
+    "root_cause": "Not established"
+  },
+  "controls": [
+    {
+      "place_id": 90441122676618,
+      "module_disabled": true,
+      "suite_submitted": false,
+      "observed_seconds": 45.2,
+      "disconnected": false,
+      "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T083447Z_Player_22407_last.log",
+      "evidence_log": ".maintenance\\sunc-client-control-2.log",
+      "module_restored": true,
+      "module_sha256": "fec655dc071ea622188029ef9730cdff40691e54e3ba613289d6a05b40e16b82",
+      "roblox_closed": true
+    },
+    {
+      "place_id": 90441122676618,
+      "module_disabled": false,
+      "suite_submitted": false,
+      "observed_seconds": 45.56,
+      "disconnected": false,
+      "process_running_at_end": true,
+      "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261114T083604Z_Player_5CD59_last.log",
+      "evidence_log": ".maintenance\\sunc-module-only-control.log",
+      "module_initialized": true,
+      "module_loaded": true,
+      "module_restored": true,
+      "module_sha256": "fec655dc071ea622188029ef9730cdff40691e54e3ba613289d6a05b40e16b82",
+      "roblox_closed": true
+    }
+  ],
+  "best_historical_completed_sunc_run": {
+    "place_id": 90441122676618,
+    "ran": 86,
+    "passed": 81,
+    "failed": 5,
+    "percent": 94,
+    "historical": true,
+    "reflects_current_dll": false,
+    "evidence_log": "D:\\NERO\\ModuleV2\\.maintenance\\sunc-iteration-10.log",
+    "failed_checks": [
+      "clonefunction",
+      "getconnections",
+      "hookfunction",
+      "newcclosure",
+      "restorefunction"
+    ]
+  },
+  "offset_source": {
+    "path": "D:\\NERO\\Offsets\\hyperion_win_live.txt",
+    "sha256": "59eafdc3ee64e80b80985087b7c30e28cd4495cc39233b2e67707d095784b1eb"
+  },
+  "runner_verification": {
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "command": "python -m unittest discover -s tests -p test_sunc_runner.py -v"
+  },
+  "final_state": {
+    "module_restored": true,
+    "roblox_closed": true,
+    "temporary_disabled_dll_present": false
+  }
+}
