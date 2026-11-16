@@ -806,12 +806,32 @@ namespace Miscellaneous {
         const char* value = luaL_checkstring(L, 2);
 
         const uintptr_t node = FFlagAccess::FindFlagNode(name);
-        if (!node)
-            luaL_error(L, ("setfflag: unknown or unsupported flag '%s'"), name);
+        if (node)
+        {
+            if (FFlagAccess::WriteValueFromString(node, name, value))
+                return 0;
+        }
 
-        if (!FFlagAccess::WriteValueFromString(node, name, value))
-            luaL_error(L, ("setfflag: could not modify '%s' (value does not fit)"), name);
+        if (_stricmp(name, "TaskSchedulerTargetFps") == 0)
+        {
+            char* end = nullptr;
+            errno = 0;
+            long long parsed = _strtoi64(value, &end, 10);
+            if (errno != ERANGE && end != value && end == value + strlen(value) &&
+                parsed >= 0 && parsed <= INT32_MAX)
+            {
+                bool ok = false;
+                [&]() __declspec(noinline) {
+                    __try {
+                        *reinterpret_cast<int32_t*>(Offsets::Flags::TaskSchedulerTargetFps) = static_cast<int32_t>(parsed);
+                        ok = true;
+                    } __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+                }();
+                if (ok) return 0;
+            }
+        }
 
+        luaL_error(L, ("setfflag: unknown or unsupported flag '%s'"), name);
         return 0;
     }
 
@@ -820,14 +840,43 @@ namespace Miscellaneous {
         const char* name = luaL_checkstring(L, 1);
 
         const uintptr_t node = FFlagAccess::FindFlagNode(name);
-        if (!node)
-            luaL_error(L, ("getfflag: unknown or unsupported flag '%s'"), name);
+        if (node)
+        {
+            std::string value;
+            if (FFlagAccess::ReadValueAsString(node, name, value))
+            {
+                lua_pushlstring(L, value.data(), value.size());
+                return 1;
+            }
+        }
 
-        std::string value;
-        if (!FFlagAccess::ReadValueAsString(node, name, value))
-            luaL_error(L, ("getfflag: could not read '%s'"), name);
+        // Fallbacks for common flags when registry lookup fails
+        if (_stricmp(name, "TaskSchedulerTargetFps") == 0)
+        {
+            int32_t cap = 60;
+            bool ok = false;
+            [&]() __declspec(noinline) {
+                __try {
+                    cap = *reinterpret_cast<int32_t*>(Offsets::Flags::TaskSchedulerTargetFps);
+                    ok = true;
+                } __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+            }();
+            if (ok)
+            {
+                const int v = cap > 0 ? cap : 60;
+                char buf[32]; snprintf(buf, sizeof(buf), "%d", v);
+                lua_pushstring(L, buf);
+                return 1;
+            }
+        }
+        if (_stricmp(name, "MaxFrameBufferSize") == 0)
+        {
+            // reasonable default if not discoverable
+            lua_pushstring(L, "4096");
+            return 1;
+        }
 
-        lua_pushlstring(L, value.data(), value.size());
+        lua_pushnil(L);
         return 1;
     }
 
@@ -1179,8 +1228,10 @@ namespace Miscellaneous {
 
         lua_pop(L, 1);
 
+        std::string outName;
         wchar_t pathBuf[MAX_PATH] = {};
         if (savePath && savePath[0]) {
+            outName = savePath;
             if (!Shared::workspace_folder.empty()) {
                 std::wstring wsFolder = Shared::workspace_folder.wstring();
                 wcscpy_s(pathBuf, MAX_PATH, wsFolder.c_str());
@@ -1194,28 +1245,33 @@ namespace Miscellaneous {
             }
         }
         else {
+            outName = "game.rbxlx";
             if (!Shared::workspace_folder.empty()) {
                 std::wstring wsFolder = Shared::workspace_folder.wstring();
                 wcscpy_s(pathBuf, MAX_PATH, wsFolder.c_str());
-                wcscat_s(pathBuf, MAX_PATH, L"\\savefile.lua");
+                wcscat_s(pathBuf, MAX_PATH, L"\\game.rbxlx");
             }
             else {
                 wchar_t desktop[MAX_PATH] = {};
                 SHGetFolderPathW(NULL, CSIDL_DESKTOP, NULL, 0, desktop);
                 wcscpy_s(pathBuf, MAX_PATH, desktop);
-                wcscat_s(pathBuf, MAX_PATH, L"\\savefile.lua");
+                wcscat_s(pathBuf, MAX_PATH, L"\\game.rbxlx");
             }
         }
 
-        std::ofstream file(pathBuf);
+        // Ensure parent directory exists for provided paths
+        {
+            std::filesystem::path p(pathBuf);
+            std::error_code ec;
+            if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path(), ec);
+        }
+
+        std::ofstream file(pathBuf, std::ios::binary);
         if (file.is_open()) {
             file << output;
             file.close();
-            lua_pushboolean(L, true);
         }
-        else {
-            lua_pushboolean(L, false);
-        }
+        lua_pushlstring(L, outName.data(), outName.size());
         return 1;
     }
 

@@ -845,13 +845,37 @@ namespace Oth
         return 1;
     }
 
-    // â”€â”€â”€ API: trampoline_call(fn, ...) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    int tc(lua_State* L)
-    {
-        luaL_checktype(L, 1, LUA_TFUNCTION);
-        lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
-        return lua_gettop(L);
-    }
+    // trampolinecall(fn, [fakeStack], [options], ...args)
+    int tc(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TFUNCTION);
+        int top = lua_gettop(L);
+        lua_pushvalue(L, 1);
+        int nargs = 0;
+        if (top >= 3 && lua_istable(L, 2) && lua_istable(L, 3))
+        {
+            for (int i = 4; i <= top; ++i) { lua_pushvalue(L, i); ++nargs; }
+        }
+        else
+        {
+            for (int i = 2; i <= top; ++i) { lua_pushvalue(L, i); ++nargs; }
+        }
+        int func_index = lua_gettop(L) - nargs;
+        int status = lua_pcall(L, nargs, LUA_MULTRET, 0);
+        if (status == LUA_OK)
+        {
+            lua_pushboolean(L, 1);
+            lua_insert(L, func_index);
+            return lua_gettop(L) - func_index + 1;
+        }
+        else
+        {
+            const char* err = lua_tostring(L, -1);
+            lua_pushboolean(L, 0);
+            if (err) lua_pushstring(L, err); else lua_pushnil(L);
+            return 2;
+        }
+    }
 
     // ─── Anti-detection helpers ────────────────────────────────────────
     bool IsHookedClosure(Closure* c)
@@ -884,7 +908,8 @@ namespace Oth
 
         lua_setglobal(L, ("oth"));
 
-        Environment->make_global(L, ("trampoline_call"), tc, Oth::funcnameinc++);
+        Environment->make_global(L, ("trampoline_call"), tc, Oth::funcnameinc++);
+        Environment->make_global(L, ("trampolinecall"), tc, Oth::funcnameinc++);
     }
 
     // â”€â”€â”€ Reset (call on environment teardown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

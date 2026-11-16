@@ -550,8 +550,9 @@ namespace Filesystem
     int dofile(lua_State* L)
     {
         if (loadfile(L) != 1) return 2;
-        lua_call(L, 0, 0);
-        return 0;
+        int base = lua_gettop(L); // function on top
+        lua_call(L, 0, LUA_MULTRET);
+        return lua_gettop(L) - base + 1;
     }
 
     int getcustomasset(lua_State* L)
