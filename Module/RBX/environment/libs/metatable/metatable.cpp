@@ -223,15 +223,74 @@ namespace Metatable {
         return results;
     }
 
+    int iswritable(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TTABLE);
+        lua_pushboolean(L, !hvalue(luaA_toobject(L, 1))->readonly);
+        return 1;
+    }
+
+    int setnamecallmethod(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TSTRING);
+        size_t len = 0;
+        const char* str = lua_tolstring(L, 1, &len);
+        Closures::UpdateNamecallAtom(L, luaS_newlstr(L, str, len));
+        return 0;
+    }
+
+    int getmetafield(lua_State* L)
+    {
+        luaL_checkany(L, 1);
+        luaL_checkstring(L, 2);
+        if (!lua_getmetatable(L, 1))
+        {
+            lua_pushnil(L);
+            return 1;
+        }
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        return 1;
+    }
+
+    int hasmetafield(lua_State* L)
+    {
+        luaL_checkany(L, 1);
+        luaL_checkstring(L, 2);
+        bool present = false;
+        if (lua_getmetatable(L, 1))
+        {
+            lua_pushvalue(L, 2);
+            lua_rawget(L, -2);
+            present = !lua_isnil(L, -1);
+        }
+        lua_pushboolean(L, present);
+        return 1;
+    }
+
+    int hasmetatable(lua_State* L)
+    {
+        luaL_checkany(L, 1);
+        lua_pushboolean(L, lua_getmetatable(L, 1) != 0);
+        return 1;
+    }
+
     void register_lib(lua_State* L)
     {
         Environment->make_global(L, ("hookmetamethod"), hookmetamethod, Metatable::funcnameinc++);
         Environment->make_global(L, ("getnamecallmethod"), getnamecallmethod, Metatable::funcnameinc++);
+        Environment->make_global(L, ("setnamecallmethod"), setnamecallmethod, Metatable::funcnameinc++);
         Environment->make_global(L, ("setreadonly"), setreadonly, Metatable::funcnameinc++);
         Environment->make_global(L, ("isreadonly"), isreadonly, Metatable::funcnameinc++);
+        Environment->make_global(L, ("iswritable"), iswritable, Metatable::funcnameinc++);
+        Environment->make_global(L, ("iswriteable"), iswritable, Metatable::funcnameinc++);
         Environment->make_global(L, ("getrawmetatable"), getrawmetatable, Metatable::funcnameinc++);
         Environment->make_global(L, ("setrawmetatable"), setrawmetatable, Metatable::funcnameinc++);
         Environment->make_global(L, ("makereadonly"), makereadonly, Metatable::funcnameinc++);
         Environment->make_global(L, ("makewriteable"), makewriteable, Metatable::funcnameinc++);
+        Environment->make_global(L, ("makewritable"), makewriteable, Metatable::funcnameinc++);
+        Environment->make_global(L, ("getmetafield"), getmetafield, Metatable::funcnameinc++);
+        Environment->make_global(L, ("hasmetafield"), hasmetafield, Metatable::funcnameinc++);
+        Environment->make_global(L, ("hasmetatable"), hasmetatable, Metatable::funcnameinc++);
     }
 }

@@ -73,26 +73,11 @@ void Execution::ExecuteScript(lua_State* L, std::string Script)
 
 	// defer through the task scheduler so yields/waits inside the script
 	// keep working; fall back to a direct call when task.defer is missing
-	lua_getfield(ExecutionThread, LUA_REGISTRYINDEX, "module.task.defer");
-	if (!lua_isfunction(ExecutionThread, -1))
-	{
-		lua_pop(ExecutionThread, 1);
-		lua_getglobal(ExecutionThread, "task");
-		lua_getfield(ExecutionThread, -1, "defer");
-		if (lua_isfunction(ExecutionThread, -1))
-		{
-			lua_pushvalue(ExecutionThread, -1);
-			lua_setfield(ExecutionThread, LUA_REGISTRYINDEX, "module.task.defer");
-			lua_remove(ExecutionThread, -2); // remove task table, keep defer
-		}
-		else
-		{
-			lua_pop(ExecutionThread, 2); // pop non-function defer, task
-		}
-	}
-
+	lua_getglobal(ExecutionThread, "task");
+	lua_getfield(ExecutionThread, -1, "defer");
 	if (lua_isfunction(ExecutionThread, -1))
 	{
+		lua_remove(ExecutionThread, -2);
 		lua_insert(ExecutionThread, -2);
 
 		int Status = lua_pcall(ExecutionThread, 1, 0, 0);
@@ -109,6 +94,7 @@ void Execution::ExecuteScript(lua_State* L, std::string Script)
 	{
 		// no task library in this state — run the chunk inline so the
 		// script still executes instead of silently doing nothing
+		lua_pop(ExecutionThread, 2);
 		int Status = lua_pcall(ExecutionThread, 0, 0, 0);
 		if (Status != LUA_OK)
 		{

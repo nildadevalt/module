@@ -1,5 +1,7 @@
-﻿#include <RBX/environment/libs/reflection/reflection.hpp>
+#include <RBX/environment/libs/reflection/reflection.hpp>
 #include <RBX/environment/env.hpp>
+#include <lgc.h>
+#include <lmem.h>
 
 #include <Utilitys/Utils.hpp>
 #include <Utilitys/Globals.hpp>
@@ -9,7 +11,6 @@
 namespace Reflection
 {
     std::unordered_map<uintptr_t, std::unordered_map<uintptr_t, bool>> scriptable_overrides;
-    std::unordered_map<uintptr_t, bool> scriptable_base;
     std::unordered_map<uintptr_t, std::unordered_map<std::string, CallbackRecord>> callback_values;
 
     bool can_read(uintptr_t address, size_t size) noexcept
@@ -199,6 +200,36 @@ namespace Reflection
         return 0;
     }
 
+    static void collect_class_properties(std::uintptr_t classDescriptor, std::vector<uintptr_t>& props)
+    {
+        constexpr std::uintptr_t PropertyTableOffset = ClientOffsets::RobloxProperty::PropertyMapOffset + 0x10;
+        constexpr std::uintptr_t BucketMaskOffset = ClientOffsets::MemberMap::Mask;
+        constexpr std::uintptr_t PropertyEntrySize = 0x10;
+
+        std::uintptr_t propertyTable = 0;
+        std::uint32_t bucketMask = 0;
+        if (!read_value(classDescriptor + PropertyTableOffset, propertyTable) || !propertyTable)
+            return;
+        if (!read_value(classDescriptor + BucketMaskOffset, bucketMask) || bucketMask == 0xFFFFFFFFu)
+            return;
+
+        const std::uint32_t slots = bucketMask + 1;
+        if (slots > 8192)
+            return;
+
+        for (std::uint32_t i = 0; i < slots; ++i)
+        {
+            std::uintptr_t descriptor = 0;
+            if (!read_value(propertyTable + static_cast<std::uintptr_t>(i) * PropertyEntrySize, descriptor) || !descriptor)
+                continue;
+            if (can_read(descriptor + Offsets::Instance::PropertyDescriptorBitFlags, sizeof(uint32_t)) &&
+                get_property_name(descriptor))
+            {
+                props.push_back(descriptor);
+            }
+        }
+    }
+
     std::vector<uintptr_t> get_all_properties_for_instance(uintptr_t instance)
     {
         std::vector<uintptr_t> props;
@@ -208,6 +239,10 @@ namespace Reflection
 
         uintptr_t classDescriptor = seh_read_ptr(instance + Offsets::Instance::ClassDescriptor);
         if (!classDescriptor)
+            return props;
+
+        collect_class_properties(classDescriptor, props);
+        if (!props.empty())
             return props;
 
         uintptr_t super = classDescriptor;
@@ -282,7 +317,6 @@ namespace Reflection
     void ResetLibraryState()
     {
         scriptable_overrides.clear();
-        scriptable_base.clear();
         callback_values.clear();
     }
 
@@ -399,6 +433,61 @@ namespace Reflection
 
         uint32_t flags = seh_read_u32(prop + Offsets::Instance::PropertyDescriptorBitFlags);
         seh_write_u32(prop + Offsets::Instance::PropertyDescriptorBitFlags, (flags & ~0x10u) | (state ? 0x10u : 0));
+    }
+
+    ScopedScriptable::ScopedScriptable(lua_State* L, int udIndex, const char* propName) noexcept
+    {
+        if (scriptable_overrides.empty() || !L || !lua_isuserdata(L, udIndex) || !propName || !propName[0])
+            return;
+
+        uintptr_t inst = 0;
+        uintptr_t prop = 0;
+        if (udIndex == 1 && lua_isstring(L, 2))
+        {
+            if (!resolve_property(L, inst, prop) || !inst || !prop)
+                return;
+        }
+        else
+        {
+            inst = seh_read_ptr(reinterpret_cast<uintptr_t>(lua_touserdata(L, udIndex)));
+            if (!inst)
+                return;
+            prop = get_instance_prop_by_name(L, inst, propName);
+            if (!prop)
+                return;
+        }
+
+        auto instIt = scriptable_overrides.find(inst);
+        if (instIt == scriptable_overrides.end())
+            return;
+
+        auto propIt = instIt->second.find(prop);
+        if (propIt == instIt->second.end())
+            return;
+
+        const uintptr_t flagsAddr = prop + Offsets::Instance::PropertyDescriptorBitFlags;
+        if (!can_read(flagsAddr, sizeof(uint32_t)))
+            return;
+
+        const uint32_t flags = seh_read_u32(flagsAddr);
+        const uint32_t wanted = propIt->second ? (flags | 0x10u) : (flags & ~0x10u);
+        LOGF("Reflection", "ScopedScriptable match prop='%s' inst=0x%llX prop=0x%llX flags=0x%X wanted=0x%X",
+            propName, (unsigned long long)inst, (unsigned long long)prop, flags, wanted);
+        if (wanted == flags)
+            return;
+
+        if (!seh_write_u32(flagsAddr, wanted))
+            return;
+
+        Descriptor = prop;
+        OriginalFlags = flags;
+        Applied = true;
+    }
+
+    ScopedScriptable::~ScopedScriptable() noexcept
+    {
+        if (Applied)
+            seh_write_u32(Descriptor + Offsets::Instance::PropertyDescriptorBitFlags, OriginalFlags);
     }
 
     int get_property_type(uintptr_t prop) {
@@ -621,7 +710,7 @@ namespace Reflection
 
     int isscriptable(lua_State* L)
     {
-
+        
         luaL_checktype(L, 1, LUA_TUSERDATA);
         const char* prop_name = luaL_checkstring(L, 2);
 
@@ -640,19 +729,13 @@ namespace Reflection
             }
         }
 
-        auto baseIt = scriptable_base.find(prop);
-        if (baseIt != scriptable_base.end()) {
-            lua_pushboolean(L, baseIt->second);
-            return 1;
-        }
-
         lua_pushboolean(L, read_scriptable_flag(prop));
         return 1;
     }
 
     int setscriptable(lua_State* L)
     {
-
+        
         luaL_checktype(L, 1, LUA_TUSERDATA);
         const char* prop_name = luaL_checkstring(L, 2);
         luaL_checktype(L, 3, LUA_TBOOLEAN);
@@ -663,15 +746,7 @@ namespace Reflection
             return 1;
         }
 
-        // Remember the descriptor's original scriptable state once, so new
-        // instances without an explicit override report the real base value
-        // (UNC expects setscriptable overrides not to persist across instances).
-        auto baseIt = scriptable_base.find(prop);
-        const bool base = (baseIt != scriptable_base.end()) ? baseIt->second : read_scriptable_flag(prop);
-        if (baseIt == scriptable_base.end())
-            scriptable_base[prop] = base;
-
-        bool wasScriptable = base;
+        bool wasScriptable = read_scriptable_flag(prop);
         auto instIt = scriptable_overrides.find(inst);
         if (instIt != scriptable_overrides.end()) {
             auto propIt = instIt->second.find(prop);
@@ -680,12 +755,8 @@ namespace Reflection
             }
         }
 
-        const bool state = lua_toboolean(L, 3) != 0;
+        bool state = lua_toboolean(L, 3) != 0;
         scriptable_overrides[inst][prop] = state;
-
-        // Do not mutate the shared property descriptor: that would leak the
-        // scriptable state to all other instances of the same class.
-        (void)write_scriptable_flag;
 
         lua_pushboolean(L, wasScriptable);
         return 1;
@@ -1159,10 +1230,131 @@ namespace Reflection
         return gethiddenproperty(L);
     }
 
+    int getbspval(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TUSERDATA);
+        if (lua_gettop(L) < 2 || lua_isnil(L, 2))
+        {
+            lua_settop(L, 1);
+            lua_pushstring(L, ("PhysicalConfigData"));
+        }
+        else
+        {
+            luaL_checktype(L, 2, LUA_TSTRING);
+            lua_settop(L, 2);
+        }
+
+        int ret = gethiddenproperty(L);
+        if (ret >= 1 && lua_isstring(L, -ret))
+        {
+            int valIdx = lua_gettop(L) - ret + 1;
+            lua_getglobal(L, ("base64encode"));
+            if (lua_isfunction(L, -1))
+            {
+                lua_pushvalue(L, valIdx);
+                if (lua_pcall(L, 1, 1, 0) == LUA_OK)
+                {
+                    lua_replace(L, valIdx);
+                }
+                else
+                {
+                    lua_pop(L, 1);
+                }
+            }
+            else
+            {
+                lua_pop(L, 1);
+            }
+        }
+        return ret;
+    }
+
+    int getreferencedby(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TUSERDATA);
+        void* targetPtr = *static_cast<void**>(lua_touserdata(L, 1));
+
+        lua_newtable(L);
+        int resultIdx = lua_gettop(L);
+
+        struct RefCtx {
+            lua_State* L;
+            void* targetPtr;
+            int resultIdx;
+            int count;
+        } ctx{ L, targetPtr, resultIdx, 0 };
+
+        auto oldThreshold = L->global->GCthreshold;
+        L->global->GCthreshold = SIZE_MAX;
+
+        luaM_visitgco(L, &ctx, [](void* rawCtx, lua_Page*, GCObject* gco) -> bool {
+            auto* c = static_cast<RefCtx*>(rawCtx);
+            if (isdead(c->L->global, gco))
+                return false;
+
+            if (gco->gch.tt == LUA_TTABLE)
+            {
+                LuaTable* t = gco2h(gco);
+                bool found = false;
+
+                for (int i = 0; i < t->sizearray && !found; ++i)
+                {
+                    const TValue* v = &t->array[i];
+                    if (ttisuserdata(v))
+                    {
+                        void* ud = uvalue(v)->data;
+                        if (ud && *static_cast<void**>(ud) == c->targetPtr)
+                            found = true;
+                    }
+                }
+
+                int nodeCount = sizenode(t);
+                for (int i = 0; i < nodeCount && !found; ++i)
+                {
+                    const LuaNode* n = &t->node[i];
+                    if (ttisnil(&n->val))
+                        continue;
+
+                    if (ttisuserdata(&n->val))
+                    {
+                        void* ud = uvalue(&n->val)->data;
+                        if (ud && *static_cast<void**>(ud) == c->targetPtr)
+                            found = true;
+                    }
+                    else if (ttisuserdata(&n->key))
+                    {
+                        void* ud = uvalue(&n->key)->data;
+                        if (ud && *static_cast<void**>(ud) == c->targetPtr)
+                            found = true;
+                    }
+                }
+
+                if (found)
+                {
+                    TValue* top = c->L->top;
+                    sethvalue(c->L, top, t);
+                    c->L->top++;
+                    if (!lua_rawequal(c->L, -1, c->resultIdx))
+                        lua_rawseti(c->L, c->resultIdx, ++c->count);
+                    else
+                        lua_pop(c->L, 1);
+                }
+            }
+            return false;
+        });
+
+        L->global->GCthreshold = oldThreshold;
+        return 1;
+    }
+
     void register_lib(lua_State* L)
     {
         if (!L) return;
         Environment->make_global(L, ("getpcd"), getpcd, Reflection::funcnameinc++);
+        Environment->make_global(L, ("getpcdprop"), getpcd, Reflection::funcnameinc++);
+        Environment->make_global(L, ("getbspval"), getbspval, Reflection::funcnameinc++);
+        Environment->make_global(L, ("getreferencedby"), getreferencedby, Reflection::funcnameinc++);
+        Environment->make_global(L, ("getreferences"), getreferencedby, Reflection::funcnameinc++);
         Environment->make_global(L, ("isscriptable"), isscriptable, Reflection::funcnameinc++);
         Environment->make_global(L, ("isscriptable"), isscriptable, Reflection::funcnameinc++);
         Environment->make_global(L, ("is_scriptable"), isscriptable, Reflection::funcnameinc++);

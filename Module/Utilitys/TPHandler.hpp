@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Windows.h>
 #include <thread>
 #include <atomic>
@@ -16,7 +16,9 @@ namespace TpHandler
             return;
 
         std::thread([]() {
+#ifdef _DEBUG
             OutputDebugStringA("[Isaeva] TpHandler: starting\n");
+#endif
             Renderer::AddConsoleLog(("INFO"), ("TpHandler"), ("Starting TeleportHandler..."));
 
             task_scheduler::TeleportHandler();

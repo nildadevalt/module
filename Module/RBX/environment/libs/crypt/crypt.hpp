@@ -28,6 +28,7 @@ namespace Crypt
     int lz4compress(lua_State* L);
     int lz4decompress(lua_State* L);
     int getfunctionhash(lua_State* L);
+    int getfunctionbytecode(lua_State* L);
 
     std::size_t calculateProtoBytesSize(const Proto* proto);
     std::vector<unsigned char> getProtoBytes(const Proto* proto);

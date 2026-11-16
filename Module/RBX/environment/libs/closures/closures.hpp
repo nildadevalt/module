@@ -294,6 +294,27 @@ namespace Closures
         return true;
     }
 
+    inline void UpdateNamecallAtom(lua_State* L, TString* atom)
+    {
+        L->namecall = atom;
+        auto found = NamecallFrames.find(L);
+        if (found == NamecallFrames.end() || found->second.empty())
+            return;
+        auto& frame = found->second.back();
+        if (frame.AtomRef != LUA_NOREF)
+        {
+            lua_unref(L, frame.AtomRef);
+            frame.AtomRef = LUA_NOREF;
+        }
+        frame.Atom = atom;
+        if (atom)
+        {
+            lua_pushlstring(L, atom->data, atom->len);
+            frame.AtomRef = lua_ref(L, -1);
+            lua_pop(L, 1);
+        }
+    }
+
     inline void BeginNamecallFrame(lua_State* L, Closure* target)
     {
         auto& frames = NamecallFrames[L];
@@ -2370,5 +2391,87 @@ namespace Closures
 
         return 0;
     }
+
+    inline int ishiddenstack(lua_State* L)
+    {
+        if (lua_isfunction(L, 1))
+        {
+            Closure* cl = clvalue(index2addr(L, 1));
+            lua_pushboolean(L, HiddenClosures.contains(cl) ? 1 : 0);
+            return 1;
+        }
+
+        if (lua_isnumber(L, 1))
+        {
+            int level = luaL_checkinteger(L, 1);
+            if (level < 0 || level >= int(L->ci - L->base_ci))
+            {
+                lua_pushboolean(L, 0);
+                return 1;
+            }
+
+            CallInfo* ci = L->ci - level;
+            if (ci && ttisfunction(ci->func))
+            {
+                Closure* cl = clvalue(ci->func);
+                lua_pushboolean(L, HiddenClosures.contains(cl) ? 1 : 0);
+                return 1;
+            }
+
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+
+        luaL_argerror(L, 1, "expected function or stack level");
+        return 0;
+    }
+
+    inline int setname(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TFUNCTION);
+        size_t len = 0;
+        const char* name = luaL_checklstring(L, 2, &len);
+
+        Closure* cl = clvalue(index2addr(L, 1));
+        TString* ts = luaS_newlstr(L, name, len);
+
+        if (cl->isC)
+        {
+            cl->c.debugname = ts;
+            luaC_objbarrier(L, cl, ts);
+        }
+        else if (cl->l.p)
+        {
+            cl->l.p->debugname = ts;
+            luaC_objbarrier(L, cl->l.p, ts);
+        }
+
+        return 0;
+    }
+
+    inline int newlclosure(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TFUNCTION);
+
+        static std::string cachedBytecode;
+        if (cachedBytecode.empty())
+            cachedBytecode = Execution::CompileScript("local fn = ... return function(...) return fn(...) end");
+
+        if (luau_load(L, "=newlclosure", cachedBytecode.data(), cachedBytecode.size(), 0) != LUA_OK)
+            lua_error(L);
+
+        Closure* loader = clvalue(index2addr(L, -1));
+        if (loader && !loader->isC && loader->l.p)
+        {
+            task_scheduler::SetProtoCapabilities(loader->l.p, &MaxCapabilities);
+            for (int i = 0; i < loader->l.p->sizep; ++i)
+                task_scheduler::SetProtoCapabilities(loader->l.p->p[i], &MaxCapabilities);
+        }
+
+        lua_pushvalue(L, 1);
+        lua_call(L, 1, 1);
+        return 1;
+    }
+
     void register_lib(lua_State* L);
 }

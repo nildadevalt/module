@@ -1,4 +1,5 @@
 #include "http.hpp"
+#include "gzip.hpp"
 
 // static data member declared in http.hpp has to live in exactly one TU,
 // otherwise every reference from register_lib dangles at link time
@@ -151,7 +152,10 @@ module::core::environment::http_result_t module::core::environment::c_http::do_r
         cli.set_connection_timeout(30, 0);
         cli.set_read_timeout(30, 0);
         cli.set_write_timeout(30, 0);
-        cli.set_decompress(true);
+        // httplib is built without zlib, so leaving its decompressor on makes a
+        // gzip response fail during the read ("Failed to read connection").
+        // Read the body verbatim and let gzip.cpp decode it below.
+        cli.set_decompress(false);
 
         if (p.scheme == ("https"))
             cli.enable_server_certificate_verification(false);
@@ -182,6 +186,15 @@ module::core::environment::http_result_t module::core::environment::c_http::do_r
         result.status_code = res->status;
         result.body = res->body;
         result.headers = res->headers;
+
+        // Servers may gzip the body; decode it so scripts see plain text.
+        const bool gzipEncoded = res->get_header_value("Content-Encoding") == "gzip";
+        if (gzipEncoded || Gzip::LooksGzipped(result.body))
+        {
+            std::string decoded;
+            if (Gzip::Decompress(result.body, decoded))
+                result.body = std::move(decoded);
+        }
     }
     catch (const std::exception& ex)
     {
@@ -351,9 +364,17 @@ inline int module::core::environment::c_http::http_get(lua_State* L)
 
             return [result](lua_State* L) -> int
                 {
-                    if (!result.success || result.status_code < 200 || result.status_code >= 300)
+                    if (!result.success)
                     {
-                        lua_pushnil(L);
+                        lua_pushstring(L, (("http_get failed: ") + result.error).c_str());
+                        return 1;
+                    }
+
+                    if (result.status_code != 200)
+                    {
+                        std::stringstream err;
+                        err << ("http_get returned status: ") << result.status_code;
+                        lua_pushstring(L, err.str().c_str());
                         return 1;
                     }
 
@@ -491,60 +512,66 @@ inline int module::core::environment::c_http::request(lua_State* L)
     if (!has_header(("Accept")))
         headers.insert({ ("Accept"), ("*/*") });
 
+    std::string content_type;
+    for (auto it = headers.begin(); it != headers.end(); ++it)
+    {
+        if (_stricmp(it->first.c_str(), "Content-Type") == 0)
+        {
+            content_type = it->second;
+            headers.erase(it);
+            break;
+        }
+    }
+
     return Yielding::YieldExecution(L, [=]() -> std::function<int(lua_State*)>
         {
-            http_result_t response = do_request(method, url, headers, body);
+            http_result_t response = do_request(method, url, headers, body, content_type);
 
             return [response](lua_State* L) -> int
                 {
-                    lua_newtable(L);
+                    if (!response.success)
+                    {
+                        lua_pushstring(L, (("request failed: ") + response.error).c_str());
+                        return 1;
+                    }
 
-                    const bool ok = response.success && response.status_code >= 200 && response.status_code < 300;
-                    lua_pushboolean(L, ok);
+                    lua_newtable(L);
+                    lua_pushboolean(L, response.status_code >= 200 && response.status_code < 300);
                     lua_setfield(L, -2, ("Success"));
 
                     lua_pushinteger(L, response.status_code);
                     lua_setfield(L, -2, ("StatusCode"));
 
-                    std::string phrase = response.success ? get_status_phrase(response.status_code) : response.error;
+                    std::string phrase = get_status_phrase(response.status_code);
                     lua_pushstring(L, phrase.c_str());
                     lua_setfield(L, -2, ("StatusMessage"));
 
                     lua_newtable(L);
-                    if (response.success)
+                    for (auto& header : response.headers)
                     {
-                        for (auto& header : response.headers)
-                        {
-                            lua_pushstring(L, header.first.c_str());
-                            lua_pushstring(L, header.second.c_str());
-                            lua_settable(L, -3);
-                        }
+                        lua_pushstring(L, header.first.c_str());
+                        lua_pushstring(L, header.second.c_str());
+                        lua_settable(L, -3);
                     }
                     lua_setfield(L, -2, ("Headers"));
 
                     lua_newtable(L);
-                    if (response.success)
+                    auto set_cookie_range = response.headers.equal_range(("Set-Cookie"));
+                    for (auto it = set_cookie_range.first; it != set_cookie_range.second; ++it)
                     {
-                        auto set_cookie_range = response.headers.equal_range(("Set-Cookie"));
-                        for (auto it = set_cookie_range.first; it != set_cookie_range.second; ++it)
-                        {
-                            const std::string& cookie = it->second;
-                            size_t eq = cookie.find('=');
-                            size_t sc = cookie.find(';');
-                            if (eq == std::string::npos) continue;
-                            std::string key = cookie.substr(0, eq);
-                            std::string val = cookie.substr(eq + 1, (sc == std::string::npos ? cookie.size() : sc) - eq - 1);
-                            lua_pushstring(L, key.c_str());
-                            lua_pushstring(L, val.c_str());
-                            lua_settable(L, -3);
-                        }
+                        const std::string& cookie = it->second;
+                        size_t eq = cookie.find('=');
+                        size_t sc = cookie.find(';');
+                        if (eq == std::string::npos) continue;
+                        std::string key = cookie.substr(0, eq);
+                        std::string val = cookie.substr(eq + 1, (sc == std::string::npos ? cookie.size() : sc) - eq - 1);
+                        lua_pushstring(L, key.c_str());
+                        lua_pushstring(L, val.c_str());
+                        lua_settable(L, -3);
                     }
                     lua_setfield(L, -2, ("Cookies"));
 
-                    if (response.success)
-                        lua_pushlstring(L, response.body.data(), response.body.size());
-                    else
-                        lua_pushstring(L, "");
+                    lua_pushlstring(L, response.body.data(), response.body.size());
                     lua_setfield(L, -2, ("Body"));
 
                     return 1;

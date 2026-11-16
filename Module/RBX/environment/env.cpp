@@ -10,8 +10,6 @@
 
 #include <cstring>
 
-#include <Renderer/ui/ui.h>
-
 // â”€â”€ Global EnvironmentAPI instance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 EnvironmentAPI _g_Environment;
 EnvironmentAPI* Environment = &_g_Environment;
@@ -261,16 +259,24 @@ function Signal:Connect(callback)
 end
 
 function Signal:Once(callback)
+    -- task.spawn runs synchronously, so the callback can fire before
+    -- Connect() has returned and assigned `conn`. Disconnect through the
+    -- signal instead of capturing a possibly-nil upvalue.
     local conn
     conn = self:Connect(function(...)
-        conn:Disconnect()
+        local current = conn
+        if current then
+            current:Disconnect()
+        end
         callback(...)
     end)
     return conn
 end
 
 function Signal:Fire(...)
-    for _, conn in ipairs(table.clone(self._connections)) do
+    -- copy first: callbacks may connect/disconnect while iterating
+    local snapshot = table.clone(self._connections)
+    for _, conn in ipairs(snapshot) do
         if conn._connected then
             task.spawn(conn._callback, ...)
         end
@@ -278,13 +284,18 @@ function Signal:Fire(...)
 end
 
 function Signal:Wait()
-    local thread = coroutine.running()
-    local conn
-    conn = self:Connect(function(...)
-        conn:Disconnect()
-        task.spawn(thread, ...)
+    -- Subscribe immediately, then park through task.wait so the fire can be
+    -- delivered by the scheduler. Firing from another thread resumes here
+    -- because task.wait yields through the scheduler's own yield/resume.
+    local pack = nil
+    local conn = self:Connect(function(...)
+        pack = table.pack(...)
     end)
-    return coroutine.yield()
+
+    repeat task.wait() until pack ~= nil
+
+    conn:Disconnect()
+    return table.unpack(pack, 1, pack.n)
 end
 
 getgenv().Signal = Signal)LUA";
@@ -298,7 +309,10 @@ do
     local WebSocket = {}
 
     function WebSocket.connect(url)
-        local id = __ws_open(url)
+        local id, openErr = __ws_open(url)
+        if type(id) ~= "number" then
+            error(tostring(openErr or "WebSocket.connect failed"), 2)
+        end
 
         local function makeEvent()
             local ok, inst = pcall(function()
@@ -327,7 +341,6 @@ do
         local socket = {}
         socket.OnMessage = messages.Event
         socket.OnClose = closed.Event
-        socket._id = id
 
         function socket.Send(self, message)
             if self ~= socket then
@@ -347,24 +360,9 @@ do
         socket.send = socket.Send
         socket.close = socket.Close
 
-        -- Wait for async handshake (yields so game step/render is not blocked).
-        while true do
-            local inbox, done, state, err = __ws_poll(id)
-            if state == "open" then
-                break
-            elseif state == "failed" then
-                __ws_close(id)
-                error(err or "the websocket handshake failed", 0)
-            elseif state == "closed" or done then
-                __ws_close(id)
-                error(err or "the websocket handshake failed", 0)
-            end
-            task.wait(0.03)
-        end
-
         task.spawn(function()
             while true do
-                local inbox, done, state, err = __ws_poll(id)
+                local inbox, done = __ws_poll(id)
 
                 if inbox then
                     for index = 1, #inbox do
@@ -372,7 +370,7 @@ do
                     end
                 end
 
-                if done or state == "closed" or state == "failed" then
+                if done then
                     closed:Fire()
                     break
                 end
@@ -409,49 +407,5 @@ end
  
     task_scheduler::RequestExecution(signal);
     task_scheduler::RequestExecution(websocketScript);
-
-    // Dev Console mirror: capture Roblox LogService.MessageOut into ImGui Console tab
-    Environment->make_global(LuaState, "__devconsole_push", [](lua_State* L) -> int {
-        size_t len = 0;
-        const char* msg = luaL_optlstring(L, 1, "", &len);
-        const int msgType = (int)luaL_optinteger(L, 2, 0);
-        module::core::graphics::ui::PushDevConsoleLine(std::string(msg ? msg : "", len), msgType);
-        return 0;
-    }, 0);
-
-    std::string devConsoleScript = R"LUA(
-do
-    if getgenv().__devconsole_hooked then return end
-    getgenv().__devconsole_hooked = true
-    task.spawn(function()
-        local ok, LogService = pcall(game.GetService, game, "LogService")
-        if not ok or not LogService then return end
-        local function push(msg, mt)
-            local t = 0
-            pcall(function()
-                if typeof(mt) == "EnumItem" then t = mt.Value else t = tonumber(mt) or 0 end
-            end)
-            pcall(__devconsole_push, tostring(msg or ""), t)
-        end
-        pcall(function()
-            local hist = LogService:GetLogHistory()
-            if type(hist) == "table" then
-                for _, e in ipairs(hist) do
-                    local m = e.message or e.Message or ""
-                    local mt = e.messageType or e.MessageType or 0
-                    push(m, mt)
-                end
-            end
-        end)
-        pcall(function()
-            LogService.MessageOut:Connect(function(msg, mt)
-                push(msg, mt)
-            end)
-        end)
-    end)
-end
-)LUA";
-    task_scheduler::RequestExecution(devConsoleScript);
-
     ApplyLuauFlags();
 }

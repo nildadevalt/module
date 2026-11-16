@@ -9,23 +9,18 @@
 #include <RBX/environment/libs/miscellaneous/miscellaneous.hpp>
 #include <RBX/environment/libs/oth/oth.hpp>
 #include <RBX/environment/libs/closures/closures.hpp>
+#include <RBX/environment/libs/reflection/reflection.hpp>
 #include <cstring>
 #include <string>
-#include <string_view>
 #include <vector>
 #include <unordered_set>
 
 lua_CFunction original_index = nullptr;
+lua_CFunction original_newindex = nullptr;
 lua_CFunction original_namecall = nullptr;
+static const char g_NativeInstanceIndexKey = 0;
 
-struct TransparentHash {
-    using is_transparent = void;
-    size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
-    size_t operator()(const std::string& s) const noexcept { return std::hash<std::string_view>{}(s); }
-    size_t operator()(const char* s) const noexcept { return std::hash<std::string_view>{}(s); }
-};
-
-static const std::unordered_set<std::string, TransparentHash, std::equal_to<>> blocked_funcs = {
+static std::unordered_set<std::string> blocked_funcs = {
     "Load", "OpenScreenshotsFolder", "OpenVideosFolder", "AddCoreScriptLocal",
     "SaveScriptProfilingData", "GetRobuxBalance", "PerformPurchase", "PerformPurchaseV2",
     "PerformBulkPurchase", "PerformSubscriptionPurchase", "PerformSubscriptionPurchaseV2",
@@ -69,38 +64,27 @@ static const std::unordered_set<std::string, TransparentHash, std::equal_to<>> b
     "SignalSetFavoritePermissionDenied", "SignalUpdateOutfitFailed",
     "SignalUpdateOutfitPermissionDenied", "GetLocalFileContents", "SetBaseUrl",
     "FetchAssetWithFormat", "RegisterUGCValidationFunction", "PerformManagedUpdate",
-    "SetPurchasePromptIsShown", "DumpToFileAsync", "OpenInBrowser_DONOTUSE",
+    "SetPurchasePromptIsShown", "DumpToFileAsync", "Run", "OpenInBrowser_DONOTUSE",
     "TryInstallPlugin", "PromptImportFile", "PromptImportFiles", "UninstallPlugin",
 };
 
-static const std::unordered_set<std::string, TransparentHash, std::equal_to<>> blocked_services = {
+static std::unordered_set<std::string> blocked_services = {
     "BrowserService", "ScriptContext", "ScriptProfilerService", "MicroProfilerService",
     "TestService", "StudioService", "AccountService", "MessageBusService",
     "OpenCloudService", "HttpRbxApiService", "AvatarEditorService", "CaptureService",
     "LinkingService",
 };
 
-static std::string_view sanitize_key(const char* str, size_t len)
+static std::string sanitize_key(const char* str, size_t len)
 {
-    if (!str || len == 0)
-        return {};
-
-    for (size_t i = 0; i < len; ++i)
+    std::string key;
+    key.reserve(len);
+    for (size_t i = 0; i < len; i++)
     {
-        if (str[i] == '\0' || str[i] == '\1')
-        {
-            thread_local std::string scratch;
-            scratch.clear();
-            scratch.reserve(len);
-            for (size_t j = 0; j < len; ++j)
-            {
-                if (str[j] != '\0' && str[j] != '\1')
-                    scratch.push_back(str[j]);
-            }
-            return scratch;
-        }
+        if (str[i] != '\0' && str[i] != '\1')
+            key += str[i];
     }
-    return std::string_view(str, len);
+    return key;
 }
 
 static bool is_executor_state(lua_State* L)
@@ -113,8 +97,29 @@ static bool is_executor_state(lua_State* L)
     if (data->capabilities == Shared::MaxCapabilities)
         return true;
 
-    if (data->script.expired())
+    if (Shared::ExploitThread && L == Shared::ExploitThread)
         return true;
+
+    // A destroyed game LocalScript also has data->script.expired() == true;
+    // identify executor threads by capabilities or executor-tagged callstack frames.
+    if (L->ci && L->base_ci)
+    {
+        for (CallInfo* ci = L->ci; ci > L->base_ci; --ci)
+        {
+            if (!ci->func || !ttisfunction(ci->func))
+                continue;
+            Closure* cl = clvalue(ci->func);
+            if (!cl->isC)
+            {
+                if (cl->l.p && cl->l.p->userdata == &Shared::MaxCapabilities)
+                    return true;
+            }
+            else if (Shared::ExecutorClosures.contains(cl))
+            {
+                return true;
+            }
+        }
+    }
 
     return false;
 }
@@ -139,7 +144,7 @@ static int UnbindFromRenderStep_Wrapper(lua_State* L)
     return lua_gettop(L);
 }
 
-static bool push_executor_method(lua_State* L, std::string_view key)
+static bool push_executor_method(lua_State* L, const std::string& key)
 {
     lua_CFunction function = nullptr;
     const char* registryKey = nullptr;
@@ -152,6 +157,16 @@ static bool push_executor_method(lua_State* L, std::string_view key)
     {
         function = module::core::environment::c_http::http_get;
         registryKey = "module.instance_method.HttpGetAsync";
+    }
+    else if (key == "HttpPost")
+    {
+        function = module::core::environment::c_http::http_post;
+        registryKey = "module.instance_method.HttpPost";
+    }
+    else if (key == "HttpPostAsync")
+    {
+        function = module::core::environment::c_http::http_post;
+        registryKey = "module.instance_method.HttpPostAsync";
     }
     else if (key == "GetObjects")
     {
@@ -170,20 +185,43 @@ static bool push_executor_method(lua_State* L, std::string_view key)
     if (!lua_isfunction(L, -1))
     {
         lua_pop(L, 1);
-        std::string debugName(key);
-        lua_pushcclosure(L, function, debugName.c_str(), 0);
+        lua_pushcclosure(L, function, key.c_str(), 0);
         lua_pushvalue(L, -1);
         lua_rawsetfield(L, LUA_REGISTRYINDEX, registryKey);
     }
     return true;
 }
 
+static inline void sync_executor_tls_capabilities(lua_State* L)
+{
+    if (!L || !L->userdata)
+        return;
+
+    auto* data = static_cast<RobloxExtraSpace*>(L->userdata);
+    if (data->capabilities != Shared::MaxCapabilities)
+        return;
+
+    const uintptr_t identity_ptr = Roblox::GetIdentityStruct(*reinterpret_cast<uintptr_t*>(Offsets::RobloxThread::IdentityPtr));
+    if (!identity_ptr)
+        return;
+
+    auto* tlsId = reinterpret_cast<uint64_t*>(identity_ptr);
+    auto* tlsCaps = reinterpret_cast<uint64_t*>(identity_ptr + Offsets::Capabilities::Capabilities);
+    if (*tlsId != static_cast<uint64_t>(data->identity) || (*tlsCaps & 0x3FULL) != 0x3FULL)
+    {
+        *tlsId = static_cast<uint64_t>(data->identity);
+        *tlsCaps = data->capabilities;
+    }
+}
+
 int index_hook(lua_State* L)
 {
+    sync_executor_tls_capabilities(L);
+
     if (!is_executor_state(L))
         return original_index(L);
 
-    std::string_view key;
+    std::string key;
     if (lua_isstring(L, 2))
     {
         size_t len = 0;
@@ -197,8 +235,7 @@ int index_hook(lua_State* L)
 
     if (blocked_funcs.count(key) > 0)
     {
-        std::string msgKey(key);
-        luaL_error(L, "attempt to access blocked function '%s'", msgKey.c_str());
+        luaL_error(L, "attempt to access blocked function '%s'", key.c_str());
         return 0;
     }
 
@@ -228,15 +265,31 @@ int index_hook(lua_State* L)
         }
     }
 
+    Reflection::ScopedScriptable scopedScriptable(L, 1, key.c_str());
     return original_index(L);
+}
+
+int newindex_hook(lua_State* L)
+{
+    sync_executor_tls_capabilities(L);
+
+    if (!is_executor_state(L) || !lua_isstring(L, 2))
+        return original_newindex(L);
+
+    size_t len = 0;
+    const char* str = lua_tolstring(L, 2, &len);
+    std::string key = str ? sanitize_key(str, len) : std::string();
+    Reflection::ScopedScriptable scopedScriptable(L, 1, key.c_str());
+    return original_newindex(L);
 }
 
 int namecall_hook(lua_State* L)
 {
     Closures::RestoreNamecallAtom(L);
+    sync_executor_tls_capabilities(L);
     const bool executorState = is_executor_state(L);
 
-    std::string_view key;
+    std::string key;
     if (L->namecall)
     {
         const char* str = L->namecall->data;
@@ -250,15 +303,13 @@ int namecall_hook(lua_State* L)
 
     if (executorState && blocked_services.count(key) > 0)
     {
-        std::string msgKey(key);
-        luaL_error(L, "attempt to access blocked service '%s'", msgKey.c_str());
+        luaL_error(L, "attempt to access blocked service '%s'", key.c_str());
         return 0;
     }
 
     if (executorState && blocked_funcs.count(key) > 0)
     {
-        std::string msgKey(key);
-        luaL_error(L, "attempt to access blocked function '%s'", msgKey.c_str());
+        luaL_error(L, "attempt to access blocked function '%s'", key.c_str());
         return 0;
     }
 
@@ -277,6 +328,8 @@ int namecall_hook(lua_State* L)
         }
         if (key == "HttpGet" || key == "HttpGetAsync")
             return module::core::environment::c_http::http_get(L);
+        else if (key == "HttpPost" || key == "HttpPostAsync")
+            return module::core::environment::c_http::http_post(L);
         else if (key == "GetObjects" || key == "GetObjectsAsync")
             return Miscellaneous::GetObjects(L);
         else if (key == "BindToRenderStep")
@@ -305,7 +358,8 @@ int namecall_hook(lua_State* L)
     const int methodSlot = L->cachedslot;
     // The native index closure carries its own cache upvalues. Calling its
     // C entrypoint under a __namecall frame would supply the wrong upvalues.
-    lua_rawgetfield(L, LUA_REGISTRYINDEX, "module.native_instance_index");
+    lua_pushlightuserdata(L, const_cast<char*>(&g_NativeInstanceIndexKey));
+    lua_rawget(L, LUA_REGISTRYINDEX);
     lua_pushvalue(L, 1);
     lua_pushlstring(L, key.data(), key.size());
     // A missing method must be diagnosed by the native namecall body.
@@ -350,18 +404,31 @@ void initialize_hooks(lua_State* L)
         Closure* index_closure = clvalue(luaA_toobject(L, -1));
         if (original_index == nullptr)
             original_index = index_closure->c.f;
-        lua_rawgetfield(L, LUA_REGISTRYINDEX, "module.native_instance_index");
+        lua_pushlightuserdata(L, const_cast<char*>(&g_NativeInstanceIndexKey));
+    lua_rawget(L, LUA_REGISTRYINDEX);
         if (!lua_isfunction(L, -1))
         {
             lua_pop(L, 1);
             Closure* native = Closures::clone_closure(L, index_closure);
             native->c.f = original_index;
             Closures::push_closure(L, native);
-            lua_rawsetfield(L, LUA_REGISTRYINDEX, "module.native_instance_index");
+            lua_pushlightuserdata(L, const_cast<char*>(&g_NativeInstanceIndexKey));
+            lua_insert(L, -2);
+            lua_rawset(L, LUA_REGISTRYINDEX);
         }
         else
             lua_pop(L, 1);
         index_closure->c.f = index_hook;
+    }
+    lua_pop(L, 1);
+
+    luaL_getmetafield(L, -1, "__newindex");
+    if (lua_type(L, -1) == LUA_TFUNCTION)
+    {
+        Closure* newindex_closure = clvalue(luaA_toobject(L, -1));
+        if (original_newindex == nullptr)
+            original_newindex = newindex_closure->c.f;
+        newindex_closure->c.f = newindex_hook;
     }
     lua_pop(L, 1);
 

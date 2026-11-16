@@ -314,30 +314,36 @@ namespace Script
             return version != 0 && version <= BytecodeVersionCeiling;
         }
 
-        bool ReadContainer(std::uintptr_t address, std::string& out)
+        bool ReadContainer(std::uintptr_t address, std::string& out, std::string* outEncoded = nullptr)
         {
             std::string encoded;
 
             if (ReadStdString(address + Offsets::DataModel::ClassDescriptor, encoded)
                 && DecodeBytecode(encoded, out) && LooksLikeBytecode(out))
+            {
+                if (outEncoded) *outEncoded = std::move(encoded);
                 return true;
+            }
 
             if (ReadStdString(address, encoded) && DecodeBytecode(encoded, out) && LooksLikeBytecode(out))
+            {
+                if (outEncoded) *outEncoded = std::move(encoded);
                 return true;
+            }
 
             out.clear();
             return false;
         }
 
-        bool ReadBytecodeAt(std::uintptr_t field, std::string& out)
+        bool ReadBytecodeAt(std::uintptr_t field, std::string& out, std::string* outEncoded = nullptr)
         {
             std::uintptr_t container = 0;
 
             if (ReadRaw(field, &container, sizeof(container)) && Util::CheckMemory(container)
-                && ReadContainer(container, out))
+                && ReadContainer(container, out, outEncoded))
                 return true;
 
-            return ReadContainer(field, out);
+            return ReadContainer(field, out, outEncoded);
         }
 
         std::uintptr_t& LearnedOffset(bool moduleScript)
@@ -349,7 +355,7 @@ namespace Script
         }
     }
 
-    bool FetchBytecode(std::uintptr_t script, bool moduleScript, std::string& out)
+    static bool FetchBytecodeWithRaw(std::uintptr_t script, bool moduleScript, std::string& out, std::string* outEncoded)
     {
         static std::mutex guard;
         const std::lock_guard<std::mutex> lock(guard);
@@ -360,10 +366,10 @@ namespace Script
 
         std::uintptr_t& learned = LearnedOffset(moduleScript);
 
-        if (primary != 0 && ReadBytecodeAt(script + primary, out))
+        if (primary != 0 && ReadBytecodeAt(script + primary, out, outEncoded))
             return true;
 
-        if (learned != 0 && learned != primary && ReadBytecodeAt(script + learned, out))
+        if (learned != 0 && learned != primary && ReadBytecodeAt(script + learned, out, outEncoded))
             return true;
 
         for (std::uintptr_t offset = ScanBegin; offset <= ScanEnd; offset += sizeof(std::uintptr_t))
@@ -371,7 +377,7 @@ namespace Script
             if (offset == primary || offset == learned)
                 continue;
 
-            if (ReadBytecodeAt(script + offset, out))
+            if (ReadBytecodeAt(script + offset, out, outEncoded))
             {
                 learned = offset;
                 return true;
@@ -379,6 +385,11 @@ namespace Script
         }
 
         return false;
+    }
+
+    bool FetchBytecode(std::uintptr_t script, bool moduleScript, std::string& out)
+    {
+        return FetchBytecodeWithRaw(script, moduleScript, out, nullptr);
     }
 
     int ScriptError(lua_State* L, const char* message)
@@ -868,37 +879,6 @@ namespace Script
             lua_pushboolean(L, true);
             return 1;
         }
-        lua_Debug ar;
-        for (int level = 1; level <= 10; level++) {
-            if (!lua_getinfo(L, level, ("f"), &ar))
-                break;
-            if (lua_isfunction(L, -1)) {
-                Closure* cl = clvalue(index2addr(L, -1));
-                if (cl->isC) {
-                    for (auto func : Environment->function_array)
-                        if (func == cl || func->c.f == cl->c.f) {
-                            lua_pop(L, 1);
-                            lua_pushboolean(L, true);
-                            return 1;
-                        }
-                }
-                else if (cl->l.p && cl->l.p->source) {
-                    const char* src = getstr(cl->l.p->source);
-                    if (src && (strcmp(src, ("=loadstring")) == 0 ||
-                        strcmp(src, ("@Nam")) == 0 || strcmp(src, ("@Arona")) == 0)) {
-                        lua_pop(L, 1);
-                        lua_pushboolean(L, true);
-                        return 1;
-                    }
-                }
-                if (Closures::WrappedClosures.count(cl)) {
-                    lua_pop(L, 1);
-                    lua_pushboolean(L, true);
-                    return 1;
-                }
-            }
-            lua_pop(L, 1);
-        }
         lua_pushboolean(L, false);
         return 1;
     }
@@ -972,36 +952,20 @@ namespace Script
         if (!script)
             return ScriptError(L, ("Invalid Instance"));
 
-        const bool UsesHolder = className != ("ModuleScript");
-
-        const uintptr_t HolderR = UsesHolder ? Offsets::Scripts::LocalScriptByteCode : Offsets::Scripts::ModuleScriptByteCode;
-
-        const uintptr_t HolderAddress = script + HolderR;
-
-        if (!HelperFuncs::CheckMemory(HolderAddress))
-            return ScriptError(L, ("Invalid bytecode holder address"));
-
-        const std::uintptr_t holder = *reinterpret_cast<const std::uintptr_t*>(HolderAddress);
-
-        if (!holder)
-            return ScriptError(L, ("Null bytecode holder"));
-
+        std::string decoded;
         std::string encrypted;
-
-        static const uintptr_t baseOffsets[] = { 0x18, 0x00, 0x10, 0x08 };
         bool found = false;
-        for (uintptr_t baseOff : baseOffsets)
+        try
         {
-            if (ReadProtectedString(holder + baseOff, encrypted) && !encrypted.empty())
-            {
-                found = true;
-                break;
-            }
+            found = FetchBytecodeWithRaw(script, className == ("ModuleScript"), decoded, &encrypted);
+        }
+        catch (...)
+        {
+            found = false;
         }
 
         if (!found || encrypted.empty())
         {
-            LOGF("Script", "getscriptclosure nil: empty bytecode (class=%s holder=%p)", className.c_str(), reinterpret_cast<void*>(holder));
             lua_pushnil(L);
             return 1;
         }
@@ -2059,6 +2023,150 @@ namespace Script
 
         return 1;
     }
+    int isexecutorthread(lua_State* L)
+    {
+        lua_State* target = L;
+        if (!lua_isnoneornil(L, 1))
+        {
+            luaL_checktype(L, 1, LUA_TTHREAD);
+            target = lua_tothread(L, 1);
+        }
+
+        if (!target)
+        {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+
+        bool isOurs = (Shared::ExploitThread && target == Shared::ExploitThread) ||
+                      (target->userdata &&
+                       (target->userdata->script.expired() ||
+                        target->userdata->capabilities == MaxCapabilities));
+
+        lua_pushboolean(L, isOurs ? 1 : 0);
+        return 1;
+    }
+
+    // iscorescript(value)
+    //
+    // Accepts a script Instance (or a thread, resolved to its script) and
+    // reports whether it belongs to Roblox's CoreScripts by walking the
+    // instance's full name. Core scripts live under CoreGui / CorePackages, so
+    // a prefix test is enough and avoids a costly ancestry walk per call.
+    int iscorescript(lua_State* L)
+    {
+        luaL_checkany(L, 1);
+
+        // Resolve a thread to the script that owns it.
+        if (lua_isthread(L, 1))
+        {
+            getscriptthread(L);
+            if (lua_isnil(L, -1))
+            {
+                lua_pushboolean(L, 0);
+                return 1;
+            }
+            lua_replace(L, 1);
+        }
+
+        if (!lua_isuserdata(L, 1))
+        {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+
+        const int top = lua_gettop(L);
+
+        lua_getfield(L, 1, ("ClassName"));
+        const bool isScript = lua_isstring(L, -1) &&
+            (!strcmp(lua_tostring(L, -1), ("LocalScript")) ||
+             !strcmp(lua_tostring(L, -1), ("ModuleScript")) ||
+             !strcmp(lua_tostring(L, -1), ("Script")) ||
+             !strcmp(lua_tostring(L, -1), ("CoreScript")));
+        lua_settop(L, top);
+
+        if (!isScript)
+        {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+
+        // Descends from CoreGui / CorePackages?
+        bool core = false;
+        lua_getfield(L, 1, ("Parent"));
+        int depth = 0;
+        while (lua_isuserdata(L, -1) && depth++ < 64)
+        {
+            lua_getglobal(L, ("game"));
+            if (lua_equal(L, -1, -2))
+            {
+                lua_pop(L, 2);
+                break;
+            }
+            lua_pop(L, 1);
+
+            lua_getfield(L, -1, ("Name"));
+            if (lua_isstring(L, -1))
+            {
+                const char* name = lua_tostring(L, -1);
+                if (!strcmp(name, ("CoreGui")) || !strcmp(name, ("CorePackages")) ||
+                    !strcmp(name, ("RobloxGui")))
+                {
+                    core = true;
+                    lua_pop(L, 2);
+                    break;
+                }
+            }
+            lua_pop(L, 1);
+
+            lua_getfield(L, -1, ("Parent"));
+            lua_remove(L, -2);
+        }
+
+        lua_settop(L, top);
+        lua_pushboolean(L, core ? 1 : 0);
+        return 1;
+    }
+
+    int getscriptglobals(lua_State* L)
+    {
+        if (lua_isnoneornil(L, 1))
+        {
+            lua_pushvalue(L, LUA_GLOBALSINDEX);
+            return 1;
+        }
+
+        if (lua_isthread(L, 1))
+        {
+            lua_State* th = lua_tothread(L, 1);
+            if (!th)
+            {
+                lua_pushnil(L);
+                return 1;
+            }
+            if (th == L)
+            {
+                lua_pushvalue(L, LUA_GLOBALSINDEX);
+                return 1;
+            }
+            lua_pushvalue(th, LUA_GLOBALSINDEX);
+            lua_xmove(th, L, 1);
+            return 1;
+        }
+
+        if (lua_isfunction(L, 1))
+        {
+            lua_getfenv(L, 1);
+            return 1;
+        }
+
+        if (lua_isuserdata(L, 1))
+            return getsenv(L);
+
+        luaL_argerror(L, 1, "expected script, thread, function, or nil");
+        return 0;
+    }
+
     void register_lib(lua_State* L)
     {
         if (!L) return;
@@ -2066,6 +2174,10 @@ namespace Script
         Environment->make_global(L, ("getloadedmodules"), getloadedmodules, Script::funcnameinc++);
         Environment->make_global(L, ("getrunningscripts"), getrunningscriptsv2, Script::funcnameinc++);
         Environment->make_global(L, ("checkcaller"), checkcaller, Script::funcnameinc++);
+        Environment->make_global(L, ("isexecutorthread"), isexecutorthread, Script::funcnameinc++);
+        Environment->make_global(L, ("isourthread"), isexecutorthread, Script::funcnameinc++);
+        Environment->make_global(L, ("is_our_thread"), isexecutorthread, Script::funcnameinc++);
+        Environment->make_global(L, ("getscriptglobals"), getscriptglobals, Script::funcnameinc++);
         Environment->make_global(L, ("getscriptfromthread"), getscriptfromthread, Script::funcnameinc++);
         Environment->make_global(L, ("getscripts"), getscripts, Script::funcnameinc++);
         Environment->make_global(L, ("getrenv"), getrenv, Script::funcnameinc++);
@@ -2078,6 +2190,7 @@ namespace Script
         Environment->make_global(L, ("getscriptclosure"), getscriptclosure, Script::funcnameinc++);
         Environment->make_global(L, ("getscriptfunction"), getscriptclosure, Script::funcnameinc++);
         Environment->make_global(L, ("getscriptthread"), getscriptthread, Script::funcnameinc++);
+        Environment->make_global(L, ("iscorescript"), iscorescript, Script::funcnameinc++);
         Environment->make_global(L, ("getscriptbytecode"), getscriptbytecode, Script::funcnameinc++);
         Environment->make_global(L, ("dumpstring"), getscriptbytecode, Script::funcnameinc++);
         Environment->make_global(L, ("getallthreads"), getallthreads, Script::funcnameinc++);

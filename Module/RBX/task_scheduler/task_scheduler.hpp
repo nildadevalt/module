@@ -2,7 +2,6 @@
 
 #include <lapi.h>
 #include <string>
-#include <string_view>
 #include <lstate.h>
 #include <Windows.h>
 
@@ -12,7 +11,7 @@ namespace task_scheduler
 
 	uintptr_t GetDataModel();
 	uintptr_t GetScriptContext(uintptr_t DataModel);
-	uintptr_t GetJobByTypeName(std::string_view TypeName, uintptr_t DataModel = 0);
+	uintptr_t GetJobByTypeName(const std::string& TypeName, uintptr_t DataModel = 0);
 
 	void RequestExecution(std::string Script);
 	void SetProtoCapabilities(Proto* Proto, uintptr_t* Capabilities);

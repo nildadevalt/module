@@ -3,76 +3,6 @@
 #include <Utilitys/Log.hpp>
 #include <RBX/task_scheduler/task_scheduler.hpp>
 #include <lualib.h>
-#include <condition_variable>
-#include <mutex>
-#include <queue>
-#include <thread>
-#include <vector>
-
-namespace
-{
-	struct YieldPool
-	{
-		std::vector<std::thread> workers;
-		std::queue<std::function<void()>> jobs;
-		std::mutex m;
-		std::condition_variable cv;
-		bool stop = false;
-
-		explicit YieldPool(unsigned n = 4)
-		{
-			workers.reserve(n);
-			for (unsigned i = 0; i < n; ++i)
-			{
-				workers.emplace_back([this]
-				{
-					for (;;)
-					{
-						std::function<void()> job;
-						{
-							std::unique_lock<std::mutex> lk(m);
-							cv.wait(lk, [this] { return stop || !jobs.empty(); });
-							if (stop && jobs.empty())
-								return;
-							job = std::move(jobs.front());
-							jobs.pop();
-						}
-						job();
-					}
-				});
-			}
-		}
-
-		~YieldPool()
-		{
-			{
-				std::lock_guard<std::mutex> lk(m);
-				stop = true;
-			}
-			cv.notify_all();
-			for (auto& w : workers)
-			{
-				if (w.joinable())
-					w.join();
-			}
-		}
-
-		void submit(std::function<void()> job)
-		{
-			{
-				std::lock_guard<std::mutex> lk(m);
-				jobs.push(std::move(job));
-			}
-			cv.notify_one();
-		}
-	};
-
-	YieldPool& yield_pool()
-	{
-		static YieldPool p(4);
-		return p;
-	}
-}
 
 static void SehInvoke(const std::function<void()>& fn)
 {
@@ -88,62 +18,36 @@ static void SehInvoke(const std::function<void()>& fn)
 
 void Yielding::RunYield()
 {
-	static thread_local std::vector<std::function<void()>> batch;
-	batch.clear();
-
+	std::function<void()> YieldingRequest;
 	{
 		std::lock_guard<std::mutex> lock(Shared::YieldQueueMutex);
-		constexpr size_t kMaxPerStep = 16;
-		while (!Shared::YieldQueue.empty() && batch.size() < kMaxPerStep)
-		{
-			batch.emplace_back(std::move(Shared::YieldQueue.front()));
-			Shared::YieldQueue.pop();
-		}
+		if (Shared::YieldQueue.empty())
+			return;
+
+		YieldingRequest = Shared::YieldQueue.front();
+		Shared::YieldQueue.pop();
 	}
 
-	for (const auto& fn : batch)
-		SehInvoke(fn);
+	SehInvoke(YieldingRequest);
 }
 
 int Yielding::YieldExecution(lua_State* L, const std::function<Yielded()>& YieldingClosure)
 {
-	static uintptr_t s_cachedContext = 0;
-	static uintptr_t s_cachedForModel = 0;
-	static uint64_t s_cachedGeneration = ~0ull;
-
 	const uint64_t Generation = Shared::StateGeneration.load();
-	const uintptr_t model = Shared::LastDataModel;
-
-	uintptr_t ScriptContext = 0;
-	if (s_cachedContext && Generation == s_cachedGeneration && model == s_cachedForModel)
-	{
-		ScriptContext = s_cachedContext;
-	}
-	else
-	{
-		// shared->scriptContext points to an interface subobject, while Resume
-		// expects the native ScriptContext owner plus its Face offset.
-		ScriptContext = task_scheduler::GetScriptContext(model);
-		if (ScriptContext)
-		{
-			s_cachedContext = ScriptContext;
-			s_cachedForModel = model;
-			s_cachedGeneration = Generation;
-		}
-	}
-
+	// shared->scriptContext points to an interface subobject, while Resume
+	// expects the native ScriptContext owner plus its Face offset.
+	const uintptr_t ScriptContext = task_scheduler::GetScriptContext(Shared::LastDataModel);
 	if (!ScriptContext)
 		luaL_error(L, "cannot yield without the active ScriptContext");
-
 	lua_pushthread(L);
 	int YieldedThreadRef = lua_ref(L, -1);
 	lua_pop(L, 1);
-	LOGT("Yielding", "Suspending thread=%p ref=%d", L, YieldedThreadRef);
+	LOGF("Yielding", "Suspending thread=%p ref=%d", L, YieldedThreadRef);
 
-	yield_pool().submit([=]
+	std::thread([=]
 	{
 		Yielded ResumeFunction = YieldingClosure();
-		LOGT("Yielding", "Worker completed for thread=%p", L);
+		LOGF("Yielding", "Worker completed for thread=%p", L);
 		if (Generation != Shared::StateGeneration.load())
 			return;
 
@@ -159,15 +63,32 @@ int Yielding::YieldExecution(lua_State* L, const std::function<Yielded()>& Yield
 				RBX::LiveThreadRef* YieldingLuaThread = &YieldingLuaThreadObject;
 
 				RBX::debugger_result_t YieldState{};
-				LOGT("Yielding", "Resuming thread=%p context=%p", L, reinterpret_cast<void*>(ScriptContext));
-				const int Results = ResumeFunction(L);
+				LOGF("Yielding", "Resuming thread=%p context=%p", L, reinterpret_cast<void*>(ScriptContext));
+
+				// The resume callback must never escape: ScriptContextResume has to be
+				// reached or the yielding thread stays suspended forever and whatever
+				// it was running never finishes (this stranded whole UNC runs). A
+				// throwing resume is converted into a normal Lua error value so the
+				// thread still unwinds and its caller sees a failure instead of a hang.
+				int Results = 0;
+				__try
+				{
+					Results = ResumeFunction(L);
+				}
+				__except (EXCEPTION_EXECUTE_HANDLER)
+				{
+					LOGF("Yielding", "Resume body raised 0x%08lX; resuming with error", GetExceptionCode());
+					lua_pushstring(L, "yielding: resume callback raised a native exception");
+					Results = 1;
+				}
+
 				const int Status = Roblox::ScriptContextResume(ScriptContext + Offsets::ExtraSpace::ScriptContextToResume, &YieldState, &YieldingLuaThread, Results, false, nullptr);
-				LOGT("Yielding", "Resume returned %d; result=%d", Status, YieldState.result);
+				LOGF("Yielding", "Resume returned %d; result=%d", Status, YieldState.result);
 
 				lua_unref(L, YieldedThreadRef);
 			});
 		}
-	});
+	}).detach();
 
 	return lua_yield(L, NULL);
 }

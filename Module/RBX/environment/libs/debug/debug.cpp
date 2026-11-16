@@ -1,4 +1,4 @@
-﻿#include "Debug.hpp"
+#include "Debug.hpp"
 
 #include <RBX/environment/env.hpp>
 #include <Utilitys/Utils.hpp>
@@ -464,7 +464,11 @@ namespace Debug
         lua_createtable(L, p->sizep, 0);
         if (!active) {
             for (int i = 0; i < p->sizep; i++) {
-                lua_pushlightuserdata(L, (void*)p->p[i]);
+                Proto* proto = p->p[i];
+                Proto* cloned = clone_proto(L, proto);
+                Closure* pcl = luaF_newLclosure(L, proto->nups, Func->env, cloned ? cloned : proto);
+                luaC_threadbarrier(L);
+                setclvalue(L, L->top, pcl); L->top++;
                 lua_rawseti(L, -2, i + 1);
             }
         }
@@ -1035,8 +1039,13 @@ namespace Debug
         }
         lua_pop(L, 1);
 
-        // linedefined
+        // linedefined / currentline
         lua_getfield(L, 2, ("linedefined"));
+        if (lua_isnil(L, -1))
+        {
+            lua_pop(L, 1);
+            lua_getfield(L, 2, ("currentline"));
+        }
         if (!lua_isnil(L, -1))
         {
             p->linedefined = (int)luaL_checkinteger(L, -1);
@@ -1081,11 +1090,133 @@ namespace Debug
         return 1;
     }
 
-    // â”€â”€â”€ Registration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // debug.getcallstack([thread]) -> array of { func, line, name, source }
+    int debug_getcallstack(lua_State* L)
+    {
+        lua_State* target = L;
+        if (lua_isthread(L, 1))
+            target = lua_tothread(L, 1);
+
+        lua_newtable(L);
+        int outIdx = 1;
+
+        lua_Debug ar;
+        for (int level = (target == L ? 1 : 0); lua_getinfo(target, level, "fnls", &ar); ++level)
+        {
+            // "f" pushes the function onto target's stack
+            if (target != L)
+                lua_xmove(target, L, 1);
+
+            if (!lua_isfunction(L, -1))
+            {
+                lua_pop(L, 1);
+                continue;
+            }
+
+            lua_newtable(L);
+
+            // func
+            lua_pushvalue(L, -2);
+            lua_setfield(L, -2, "func");
+
+            // line
+            lua_pushinteger(L, ar.currentline > 0 ? ar.currentline : ar.linedefined);
+            lua_setfield(L, -2, "line");
+
+            // name
+            if (ar.name)
+            {
+                lua_pushstring(L, ar.name);
+                lua_setfield(L, -2, "name");
+            }
+
+            // source
+            if (ar.source)
+            {
+                lua_pushstring(L, ar.source);
+                lua_setfield(L, -2, "source");
+            }
+
+            lua_rawseti(L, -3, outIdx++);
+            lua_pop(L, 1); // pop func
+        }
+
+        return 1;
+    }
+
+    // ─── Registration ───────────────────────────────────────────────────────
 
     void ResetLibraryState()
     {
         // Debug has no mutable global state to reset
+    }
+
+    static int debug_getsafeenv(lua_State* L)
+    {
+        if (lua_isnoneornil(L, 1))
+        {
+            lua_pushboolean(L, L->gt ? L->gt->safeenv : 0);
+            return 1;
+        }
+        if (lua_istable(L, 1))
+        {
+            LuaTable* t = hvalue(index2addr(L, 1));
+            lua_pushboolean(L, t->safeenv);
+            return 1;
+        }
+        if (lua_isfunction(L, 1))
+        {
+            Closure* cl = clvalue(index2addr(L, 1));
+            lua_pushboolean(L, (cl->env && cl->env->safeenv) ? 1 : 0);
+            return 1;
+        }
+        if (lua_isthread(L, 1))
+        {
+            lua_State* th = lua_tothread(L, 1);
+            lua_pushboolean(L, (th->gt && th->gt->safeenv) ? 1 : 0);
+            return 1;
+        }
+        luaL_argerror(L, 1, "expected table, function, thread, or nil");
+        return 0;
+    }
+
+    static int debug_setsafeenv(lua_State* L)
+    {
+        if (lua_gettop(L) == 1 && lua_isboolean(L, 1))
+        {
+            lua_setsafeenv(L, LUA_GLOBALSINDEX, lua_toboolean(L, 1));
+            return 0;
+        }
+
+        luaL_checktype(L, 2, LUA_TBOOLEAN);
+        bool enabled = lua_toboolean(L, 2) != 0;
+
+        if (lua_isnoneornil(L, 1))
+        {
+            lua_setsafeenv(L, LUA_GLOBALSINDEX, enabled ? 1 : 0);
+            return 0;
+        }
+        if (lua_istable(L, 1))
+        {
+            lua_setsafeenv(L, 1, enabled ? 1 : 0);
+            return 0;
+        }
+        if (lua_isfunction(L, 1))
+        {
+            Closure* cl = clvalue(index2addr(L, 1));
+            if (cl->env)
+                cl->env->safeenv = enabled ? 1 : 0;
+            return 0;
+        }
+        if (lua_isthread(L, 1))
+        {
+            lua_State* th = lua_tothread(L, 1);
+            if (th->gt)
+                th->gt->safeenv = enabled ? 1 : 0;
+            return 0;
+        }
+        luaL_argerror(L, 1, "expected table, function, thread, or nil");
+        return 0;
     }
 
     void register_lib(lua_State* L)
@@ -1098,12 +1229,23 @@ namespace Debug
 
 void debug_library::initialize(lua_State* L)
 {
+    // Clone the shared Roblox debug table into a new table on the executor thread
+    // so getrenv().debug is never mutated and game scripts cannot see exploit debug.* APIs.
+    lua_newtable(L);
+    const int newDebugIdx = lua_gettop(L);
+
     lua_getglobal(L, ("debug"));
-    if (!lua_istable(L, -1))
+    if (lua_istable(L, -1))
     {
-        lua_pop(L, 1);
-        lua_newtable(L);
+        lua_pushnil(L);
+        while (lua_next(L, -2) != 0)
+        {
+            lua_pushvalue(L, -2);
+            lua_insert(L, -2);
+            lua_settable(L, newDebugIdx);
+        }
     }
+    lua_pop(L, 1);
 
     lua_setreadonly(L, -1, false);
 
@@ -1119,8 +1261,15 @@ void debug_library::initialize(lua_State* L)
     Environment->make_table_function(L, ("setstack"), Debug::debug_setstack, Debug::funcnameinc++);
     Environment->make_table_function(L, ("setupvalue"), Debug::debug_setupvalue, Debug::funcnameinc++);
     Environment->make_table_function(L, ("getregistry"), Debug::debug_getregistry, Debug::funcnameinc++);
-   // Environment->make_table_function(L, ("setinfo"), Debug::debug_setinfo, Debug::funcnameinc++);
-  //  Environment->make_table_function(L, ("validlevel"), Debug::debug_validlevel, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("getsafeenv"), Debug::debug_getsafeenv, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("isuntouched"), Debug::debug_getsafeenv, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("setsafeenv"), Debug::debug_setsafeenv, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("setuntouched"), Debug::debug_setsafeenv, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("setname"), Closures::setname, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("setinfo"), Debug::debug_setinfo, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("validlevel"), Debug::debug_validlevel, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("isvalidlevel"), Debug::debug_validlevel, Debug::funcnameinc++);
+    Environment->make_table_function(L, ("getcallstack"), Debug::debug_getcallstack, Debug::funcnameinc++);
     Environment->make_global(L, ("setstack"), Debug::debug_setstack, Debug::funcnameinc++);
     Environment->make_global(L, ("getstack"), Debug::debug_getstack, Debug::funcnameinc++);
     Environment->make_global(L, ("getconstant"), Debug::debug_getconstant, Debug::funcnameinc++);

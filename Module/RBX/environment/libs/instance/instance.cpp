@@ -1,4 +1,4 @@
-﻿#include "Instance.hpp"
+#include "Instance.hpp"
 
 #include <Windows.h>
 #include <lgc.h>
@@ -100,49 +100,73 @@ int Instance::getinstances(lua_State* L)
 
 int Instance::getnilinstances(lua_State* L)
 {
-    
     luaL_trimstack(L, 0);
 
     lua_pushvalue(L, LUA_REGISTRYINDEX);
     lua_pushlightuserdata(L, reinterpret_cast<void*>(Roblox::InstanceBridge::UintPtr));
     lua_rawget(L, -2);
+    lua_remove(L, -2);
 
-    if (!lua_istable(L, -1)) { lua_pop(L, 1); lua_pushnil(L); return 1; };
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        return 1;
+    }
 
+    // Snapshot userdata entries before calling typeof/__index so GC on the weak bridge table cannot disrupt lua_next.
     lua_newtable(L);
-
-    int index = 0;
+    const int snapIdx = lua_gettop(L);
+    int rawCount = 0;
 
     lua_pushnil(L);
     while (lua_next(L, -3) != 0) {
+        if (lua_type(L, -1) == LUA_TUSERDATA) {
+            lua_rawseti(L, snapIdx, ++rawCount);
+        } else {
+            lua_pop(L, 1);
+        }
+    }
 
-        if (!lua_isnil(L, -1)) {
-            lua_getglobal(L, ("typeof"));
-            lua_pushvalue(L, -2);
-            lua_pcall(L, 1, 1, 0);
+    lua_remove(L, -2); // pop bridge table, leaving snapshot table on top
+    const int rawIdx = lua_gettop(L);
 
-            std::string type = lua_tostring(L, -1);
+    lua_getglobal(L, ("game"));
+    const int gameIdx = lua_gettop(L);
+
+    lua_newtable(L);
+    const int resultIdx = lua_gettop(L);
+    int index = 0;
+
+    for (int i = 1; i <= rawCount; ++i) {
+        lua_rawgeti(L, rawIdx, i);
+
+        if (lua_rawequal(L, -1, gameIdx)) {
+            lua_pop(L, 1);
+            continue;
+        }
+
+        lua_getglobal(L, ("typeof"));
+        lua_pushvalue(L, -2);
+        const bool ok = lua_pcall(L, 1, 1, 0) == 0;
+        const bool isInst = ok && lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), ("Instance")) == 0;
+        lua_pop(L, 1);
+
+        if (isInst) {
+            lua_getfield(L, -1, ("Parent"));
+            const int parentType = lua_type(L, -1);
             lua_pop(L, 1);
 
-            if (type == ("Instance")) {
-                lua_getfield(L, -1, ("Parent"));
-                int parentType = lua_type(L, -1);
-                lua_pop(L, 1);
-
-                if (parentType == LUA_TNIL) {
-                    lua_pushinteger(L, ++index);
-
-                    lua_pushvalue(L, -2);
-                    lua_settable(L, -5);
-                }
+            if (parentType == LUA_TNIL) {
+                lua_rawseti(L, resultIdx, ++index);
+                continue;
             }
         }
 
         lua_pop(L, 1);
     }
 
-    lua_remove(L, -2);
-
+    lua_remove(L, gameIdx);
+    lua_remove(L, rawIdx);
     return 1;
 }
 
@@ -406,8 +430,38 @@ int Instance::getsimulationradius(lua_State* L)
 
     lua_getfield(L, -1, ("LocalPlayer"));
     if (lua_isuserdata(L, -1)) {
-        lua_pushnumber(L, 1000.0);
-        lua_pushnumber(L, 1000.0);
+        double simRadius = 1000.0;
+        double maxSimRadius = 1000.0;
+
+        lua_getglobal(L, ("gethiddenproperty"));
+        if (lua_isfunction(L, -1)) {
+            lua_pushvalue(L, -2);
+            lua_pushstring(L, ("SimulationRadius"));
+            if (lua_pcall(L, 2, 1, 0) == 0) {
+                if (lua_isnumber(L, -1))
+                    simRadius = lua_tonumber(L, -1);
+            }
+            lua_pop(L, 1);
+
+            lua_getglobal(L, ("gethiddenproperty"));
+            if (lua_isfunction(L, -1)) {
+                lua_pushvalue(L, -2);
+                lua_pushstring(L, ("MaximumSimulationRadius"));
+                if (lua_pcall(L, 2, 1, 0) == 0) {
+                    if (lua_isnumber(L, -1))
+                        maxSimRadius = lua_tonumber(L, -1);
+                }
+                lua_pop(L, 1);
+            } else {
+                lua_pop(L, 1);
+            }
+        } else {
+            lua_pop(L, 1);
+        }
+
+        lua_pushnumber(L, simRadius);
+        lua_pushnumber(L, maxSimRadius);
+        lua_remove(L, -3);
         lua_remove(L, -3);
         lua_remove(L, -3);
         return 2;
@@ -433,11 +487,30 @@ int Instance::setsimulationradius(lua_State* L)
     if (lua_pcall(L, 2, 1, 0) == 0) {
         lua_getfield(L, -1, ("LocalPlayer"));
         if (lua_isuserdata(L, -1)) {
-            lua_pushnumber(L, radius);
-            lua_setfield(L, -2, ("SimulationRadius"));
+            lua_getglobal(L, ("sethiddenproperty"));
+            if (lua_isfunction(L, -1)) {
+                lua_pushvalue(L, -2);
+                lua_pushstring(L, ("SimulationRadius"));
+                lua_pushnumber(L, radius);
+                lua_pcall(L, 3, 0, 0);
 
-            lua_pushnumber(L, maxRadius);
-            lua_setfield(L, -2, ("MaximumSimulationRadius"));
+                lua_getglobal(L, ("sethiddenproperty"));
+                if (lua_isfunction(L, -1)) {
+                    lua_pushvalue(L, -2);
+                    lua_pushstring(L, ("MaximumSimulationRadius"));
+                    lua_pushnumber(L, maxRadius);
+                    lua_pcall(L, 3, 0, 0);
+                } else {
+                    lua_pop(L, 1);
+                }
+            } else {
+                lua_pop(L, 1);
+                lua_pushnumber(L, radius);
+                lua_setfield(L, -2, ("SimulationRadius"));
+
+                lua_pushnumber(L, maxRadius);
+                lua_setfield(L, -2, ("MaximumSimulationRadius"));
+            }
         }
     }
 
@@ -495,6 +568,109 @@ inline int Instance::cloneref(lua_State* L) {
         lua_setmetatable(L, -2);
     return 1;
 }
+
+int Instance::getmodules(lua_State* L)
+{
+    luaL_trimstack(L, 0);
+
+    lua_newtable(L);
+    int resultIdx = lua_gettop(L);
+    int index = 0;
+
+    lua_pushvalue(L, LUA_REGISTRYINDEX);
+    lua_pushlightuserdata(L, reinterpret_cast<void*>(Roblox::InstanceBridge::UintPtr));
+    lua_rawget(L, -2);
+
+    if (lua_istable(L, -1))
+    {
+        lua_pushnil(L);
+        while (lua_next(L, -2) != 0)
+        {
+            if (!lua_isnil(L, -1))
+            {
+                lua_getglobal(L, ("typeof"));
+                lua_pushvalue(L, -2);
+                if (lua_pcall(L, 1, 1, 0) == LUA_OK)
+                {
+                    bool isInst = lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), ("Instance")) == 0;
+                    lua_pop(L, 1);
+
+                    if (isInst)
+                    {
+                        lua_getfield(L, -1, ("ClassName"));
+                        bool isModule = lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), ("ModuleScript")) == 0;
+                        lua_pop(L, 1);
+
+                        if (isModule)
+                        {
+                            lua_pushvalue(L, -1);
+                            lua_rawseti(L, resultIdx, ++index);
+                        }
+                    }
+                }
+                else
+                {
+                    lua_pop(L, 1);
+                }
+            }
+            lua_pop(L, 1);
+        }
+    }
+
+    lua_pop(L, 2);
+    lua_settop(L, resultIdx);
+    return 1;
+}
+
+int Instance::getinstancesbyclass(lua_State* L)
+{
+    const char* className = luaL_checkstring(L, 1);
+
+    lua_newtable(L);
+    int resultIdx = lua_gettop(L);
+    int index = 0;
+
+    lua_getglobal(L, ("game"));
+    if (lua_isnil(L, -1))
+    {
+        lua_pop(L, 1);
+        return 1;
+    }
+
+    lua_getfield(L, -1, ("GetDescendants"));
+    lua_pushvalue(L, -2);
+    if (lua_pcall(L, 1, 1, 0) != LUA_OK)
+    {
+        lua_pop(L, 2);
+        return 1;
+    }
+
+    if (lua_istable(L, -1))
+    {
+        int n = lua_objlen(L, -1);
+        for (int i = 1; i <= n; ++i)
+        {
+            lua_rawgeti(L, -1, i);
+            if (lua_isuserdata(L, -1))
+            {
+                lua_getfield(L, -1, ("ClassName"));
+                bool match = lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), className) == 0;
+                lua_pop(L, 1);
+
+                if (match)
+                {
+                    lua_pushvalue(L, -1);
+                    lua_rawseti(L, resultIdx, ++index);
+                }
+            }
+            lua_pop(L, 1);
+        }
+    }
+
+    lua_settop(L, resultIdx);
+    return 1;
+}
+
 void Instance::register_lib(lua_State* L)
 {
     if (!L) return;
@@ -503,6 +679,8 @@ void Instance::register_lib(lua_State* L)
     Environment->make_global(L, ("cloneref"), Instance::cloneref, Instance::funcnameinc++);
     Environment->make_global(L, ("clonereference"), Instance::cloneref, Instance::funcnameinc++);
     Environment->make_global(L, ("getinstances"), Instance::getinstances, Instance::funcnameinc++);
+    Environment->make_global(L, ("getmodules"), Instance::getmodules, Instance::funcnameinc++);
+    Environment->make_global(L, ("getinstancesbyclass"), Instance::getinstancesbyclass, Instance::funcnameinc++);
     Environment->make_global(L, ("isnetworkowner"), Instance::isnetworkowner, Instance::funcnameinc++);
     Environment->make_global(L, ("getspecialinfo"), Instance::getspecialinfo, Instance::funcnameinc++);
     Environment->make_global(L, ("getthreads"), Instance::getthreads, Instance::funcnameinc++);

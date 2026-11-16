@@ -65,6 +65,7 @@ namespace Script
     int getscriptclosure(lua_State* L);
     int getscriptfromthread(lua_State* L);
     int getscriptthread(lua_State* L);
+    int iscorescript(lua_State* L);
     int getrunningscriptsv2(lua_State* L);
     int getallthreads(lua_State* L);
 

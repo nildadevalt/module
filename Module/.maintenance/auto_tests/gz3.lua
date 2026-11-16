@@ -1,0 +1,5 @@
+local ok, r = pcall(request, { Url = "https://httpbin.org/gzip", Method = "GET" })
+print("[G3] result=" .. tostring(r))
+local ok2, r2 = pcall(request, { Url = "https://httpbin.org/get", Method = "GET" })
+print("[G3] plain=" .. tostring(ok2) .. " " .. tostring(type(r2)) .. " " .. tostring(ok2 and r2.StatusCode))
+print("SUNCIO-DONE")

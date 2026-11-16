@@ -22,6 +22,8 @@ namespace Instance
     int setsimulationradius(lua_State* L);
     int cloneref(lua_State* L);
     int getinstancecache(lua_State* L);
+    int getmodules(lua_State* L);
+    int getinstancesbyclass(lua_State* L);
 
     void register_lib(lua_State* L);
 }

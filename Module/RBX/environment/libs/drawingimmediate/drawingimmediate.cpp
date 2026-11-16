@@ -1,4 +1,4 @@
-﻿#include "drawingimmediate.hpp"
+#include "drawingimmediate.hpp"
 
 #include <RBX/environment/env.hpp>
 #include <Utilitys/Utils.hpp>
@@ -63,17 +63,6 @@ namespace DrawingImmediate
 
     inline bool ReadVector2(lua_State* L, int idx, float& x, float& y)
     {
-        if (lua_isvector(L, idx))
-        {
-            const float* v = lua_tovector(L, idx);
-            if (v)
-            {
-                x = v[0];
-                y = v[1];
-                return true;
-            }
-        }
-
         if (lua_isnil(L, idx)) return false;
         idx = lua_absindex(L, idx);
         lua_getfield(L, idx, ("X"));
@@ -99,9 +88,100 @@ namespace DrawingImmediate
         return true;
     }
 
-    inline ImDrawList* GetDL()
+    struct ImmediateCmd
     {
-        return g_CurrentPaint.drawList;
+        enum Type { Line, Circle, CircleFilled, Triangle, TriangleFilled, Rect, RectFilled, Quad, QuadFilled, Text };
+        Type type;
+        ImVec2 p1{}, p2{}, p3{}, p4{};
+        ImU32 col = 0;
+        float thickness = 1.0f;
+        float radius = 0.0f;
+        float rounding = 0.0f;
+        int segments = 0;
+        ImFont* font = nullptr;
+        float fontSize = 0.0f;
+        std::string text;
+    };
+
+    static std::vector<ImmediateCmd> g_PendingCmds;
+    static std::vector<ImmediateCmd> g_SubmittedCmds;
+    static std::mutex g_CmdMutex;
+
+    struct ImmediateDrawListProxy
+    {
+        void AddLine(const ImVec2& p1, const ImVec2& p2, ImU32 col, float thickness = 1.0f)
+        {
+            ImmediateCmd c{ ImmediateCmd::Line };
+            c.p1 = p1; c.p2 = p2; c.col = col; c.thickness = thickness;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddCircle(const ImVec2& center, float radius, ImU32 col, int num_segments = 0, float thickness = 1.0f)
+        {
+            ImmediateCmd c{ ImmediateCmd::Circle };
+            c.p1 = center; c.radius = radius; c.col = col; c.segments = num_segments; c.thickness = thickness;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddCircleFilled(const ImVec2& center, float radius, ImU32 col, int num_segments = 0)
+        {
+            ImmediateCmd c{ ImmediateCmd::CircleFilled };
+            c.p1 = center; c.radius = radius; c.col = col; c.segments = num_segments;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddTriangle(const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, ImU32 col, float thickness = 1.0f)
+        {
+            ImmediateCmd c{ ImmediateCmd::Triangle };
+            c.p1 = p1; c.p2 = p2; c.p3 = p3; c.col = col; c.thickness = thickness;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddTriangleFilled(const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, ImU32 col)
+        {
+            ImmediateCmd c{ ImmediateCmd::TriangleFilled };
+            c.p1 = p1; c.p2 = p2; c.p3 = p3; c.col = col;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddRect(const ImVec2& pmin, const ImVec2& pmax, ImU32 col, float rounding = 0.0f, ImDrawFlags = 0, float thickness = 1.0f)
+        {
+            ImmediateCmd c{ ImmediateCmd::Rect };
+            c.p1 = pmin; c.p2 = pmax; c.col = col; c.rounding = rounding; c.thickness = thickness;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddRectFilled(const ImVec2& pmin, const ImVec2& pmax, ImU32 col, float rounding = 0.0f)
+        {
+            ImmediateCmd c{ ImmediateCmd::RectFilled };
+            c.p1 = pmin; c.p2 = pmax; c.col = col; c.rounding = rounding;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddQuad(const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, const ImVec2& p4, ImU32 col, float thickness = 1.0f)
+        {
+            ImmediateCmd c{ ImmediateCmd::Quad };
+            c.p1 = p1; c.p2 = p2; c.p3 = p3; c.p4 = p4; c.col = col; c.thickness = thickness;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddQuadFilled(const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, const ImVec2& p4, ImU32 col)
+        {
+            ImmediateCmd c{ ImmediateCmd::QuadFilled };
+            c.p1 = p1; c.p2 = p2; c.p3 = p3; c.p4 = p4; c.col = col;
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddText(const ImVec2& pos, ImU32 col, const char* text_begin)
+        {
+            ImmediateCmd c{ ImmediateCmd::Text };
+            c.p1 = pos; c.col = col; c.text = text_begin ? text_begin : "";
+            g_PendingCmds.push_back(std::move(c));
+        }
+        void AddText(const ImFont* font, float font_size, const ImVec2& pos, ImU32 col, const char* text_begin)
+        {
+            ImmediateCmd c{ ImmediateCmd::Text };
+            c.font = const_cast<ImFont*>(font); c.fontSize = font_size; c.p1 = pos; c.col = col; c.text = text_begin ? text_begin : "";
+            g_PendingCmds.push_back(std::move(c));
+        }
+    };
+
+    static ImmediateDrawListProxy g_ProxyDrawList;
+
+    inline ImmediateDrawListProxy* GetDL()
+    {
+        return &g_ProxyDrawList;
     }
 
     PaintHandle* GetPaintHandle(lua_State* L, int idx)
@@ -156,7 +236,8 @@ namespace DrawingImmediate
         luaL_checktype(L, 2, LUA_TFUNCTION);
 
         lua_pushvalue(L, 2);
-        int ref = lua_ref(L, LUA_REGISTRYINDEX);
+        int ref = lua_ref(L, -1);
+        lua_pop(L, 1);
 
         int id = g_NextConnId++;
         ph->connections.push_back({ id, ref });
@@ -166,7 +247,38 @@ namespace DrawingImmediate
             g_PaintCallbacks.push_back({ ref, ph->zIndex });
         }
 
+        lua_newtable(L);
+        lua_pushvalue(L, 1);
         lua_pushinteger(L, id);
+        lua_pushcclosure(L, [](lua_State* L) -> int {
+            PaintHandle* handle = static_cast<PaintHandle*>(lua_touserdata(L, lua_upvalueindex(1)));
+            int connId = (int)lua_tointeger(L, lua_upvalueindex(2));
+            if (!handle) return 0;
+
+            for (auto it = handle->connections.begin(); it != handle->connections.end(); ++it)
+            {
+                if (it->id == connId)
+                {
+                    lua_unref(L, it->ref);
+                    {
+                        std::lock_guard<std::mutex> lk(g_PaintMutex);
+                        auto& vec = g_PaintCallbacks;
+                        for (auto jt = vec.begin(); jt != vec.end(); ++jt)
+                        {
+                            if (jt->ref == it->ref && jt->zIndex == handle->zIndex)
+                            {
+                                vec.erase(jt);
+                                break;
+                            }
+                        }
+                    }
+                    handle->connections.erase(it);
+                    break;
+                }
+            }
+            return 0;
+        }, "Disconnect", 2);
+        lua_setfield(L, -2, "Disconnect");
         return 1;
     }
 
@@ -530,8 +642,15 @@ namespace DrawingImmediate
 {
     void ClearAll()
     {
-        std::lock_guard<std::mutex> lk(g_PaintMutex);
-        g_PaintCallbacks.clear();
+        {
+            std::lock_guard<std::mutex> lk(g_PaintMutex);
+            g_PaintCallbacks.clear();
+        }
+        {
+            std::lock_guard<std::mutex> lk(g_CmdMutex);
+            g_PendingCmds.clear();
+            g_SubmittedCmds.clear();
+        }
     }
 
     void Render(lua_State* L)
@@ -543,20 +662,20 @@ namespace DrawingImmediate
         std::vector<PaintCallback> snapshot;
         {
             std::lock_guard<std::mutex> lk(g_PaintMutex);
-            if (g_PaintCallbacks.empty()) return;
+            if (g_PaintCallbacks.empty())
+            {
+                std::lock_guard<std::mutex> clk(g_CmdMutex);
+                g_SubmittedCmds.clear();
+                return;
+            }
             snapshot = g_PaintCallbacks;
         }
-
-        ImDrawList* dl = ImGui::GetBackgroundDrawList();
-        if (!dl) return;
-
-        g_ScreenWidth = (int)ImGui::GetIO().DisplaySize.x;
-        g_ScreenHeight = (int)ImGui::GetIO().DisplaySize.y;
 
         // Sort by zIndex
         std::sort(snapshot.begin(), snapshot.end(),
             [](const PaintCallback& a, const PaintCallback& b) { return a.zIndex < b.zIndex; });
 
+        g_PendingCmds.clear();
         g_InPaint.store(true, std::memory_order_relaxed);
 
         for (const auto& cb : snapshot)
@@ -564,7 +683,7 @@ namespace DrawingImmediate
             if (cb.ref == LUA_NOREF) continue;
 
             g_CurrentPaint.zIndex = cb.zIndex;
-            g_CurrentPaint.drawList = dl;
+            g_CurrentPaint.drawList = nullptr;
 
             lua_rawgeti(L, LUA_REGISTRYINDEX, cb.ref);
             if (lua_isfunction(L, -1))
@@ -579,6 +698,69 @@ namespace DrawingImmediate
         }
 
         g_InPaint.store(false, std::memory_order_relaxed);
+
+        {
+            std::lock_guard<std::mutex> clk(g_CmdMutex);
+            g_SubmittedCmds.swap(g_PendingCmds);
+            g_PendingCmds.clear();
+        }
+    }
+
+    void RenderOverlay()
+    {
+        g_ScreenWidth = (int)ImGui::GetIO().DisplaySize.x;
+        g_ScreenHeight = (int)ImGui::GetIO().DisplaySize.y;
+
+        std::vector<ImmediateCmd> cmds;
+        {
+            std::lock_guard<std::mutex> clk(g_CmdMutex);
+            if (g_SubmittedCmds.empty())
+                return;
+            cmds = g_SubmittedCmds;
+        }
+
+        ImDrawList* dl = ImGui::GetBackgroundDrawList();
+        if (!dl) return;
+
+        for (const auto& c : cmds)
+        {
+            switch (c.type)
+            {
+            case ImmediateCmd::Line:
+                dl->AddLine(c.p1, c.p2, c.col, c.thickness);
+                break;
+            case ImmediateCmd::Circle:
+                dl->AddCircle(c.p1, c.radius, c.col, c.segments, c.thickness);
+                break;
+            case ImmediateCmd::CircleFilled:
+                dl->AddCircleFilled(c.p1, c.radius, c.col, c.segments);
+                break;
+            case ImmediateCmd::Triangle:
+                dl->AddTriangle(c.p1, c.p2, c.p3, c.col, c.thickness);
+                break;
+            case ImmediateCmd::TriangleFilled:
+                dl->AddTriangleFilled(c.p1, c.p2, c.p3, c.col);
+                break;
+            case ImmediateCmd::Rect:
+                dl->AddRect(c.p1, c.p2, c.col, c.rounding, 0, c.thickness);
+                break;
+            case ImmediateCmd::RectFilled:
+                dl->AddRectFilled(c.p1, c.p2, c.col, c.rounding);
+                break;
+            case ImmediateCmd::Quad:
+                dl->AddQuad(c.p1, c.p2, c.p3, c.p4, c.col, c.thickness);
+                break;
+            case ImmediateCmd::QuadFilled:
+                dl->AddQuadFilled(c.p1, c.p2, c.p3, c.p4, c.col);
+                break;
+            case ImmediateCmd::Text:
+                if (c.font)
+                    dl->AddText(c.font, c.fontSize, c.p1, c.col, c.text.c_str());
+                else
+                    dl->AddText(c.p1, c.col, c.text.c_str());
+                break;
+            }
+        }
     }
 }
 

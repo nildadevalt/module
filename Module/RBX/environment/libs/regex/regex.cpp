@@ -12,25 +12,16 @@ namespace Regex {
 
     int regex_match(lua_State* L)
     {
+        
         auto* obj = reinterpret_cast<RegexObject*>(lua_touserdata(L, 1));
         if (!obj || obj->magic != REGEX_MAGIC) luaL_error(L, ("invalid Regex object"));
         const char* contents = luaL_checkstring(L, 2);
         std::string str(contents);
         std::smatch match;
-        if (!std::regex_search(str, match, obj->pattern))
-        {
+        if (std::regex_search(str, match, obj->pattern))
+            lua_pushstring(L, match[0].str().c_str());
+        else
             lua_pushnil(L);
-            return 1;
-        }
-
-        lua_newtable(L);
-        lua_newtable(L);
-        for (size_t i = 0; i < match.size(); ++i)
-        {
-            lua_pushlstring(L, match[i].str().data(), match[i].str().size());
-            lua_rawseti(L, -2, (int)(i + 1));
-        }
-        lua_setfield(L, -2, "Captures");
         return 1;
     }
 
@@ -54,14 +45,16 @@ namespace Regex {
 
     int regex_replace(lua_State* L)
     {
+        
         auto* obj = reinterpret_cast<RegexObject*>(lua_touserdata(L, 1));
         if (!obj || obj->magic != REGEX_MAGIC) luaL_error(L, ("invalid Regex object"));
         const char* contents = luaL_checkstring(L, 2);
         const char* replacement = luaL_checkstring(L, 3);
         std::string result = std::regex_replace(
-            std::string(contents), obj->pattern, std::string(replacement)
+            std::string(contents), obj->pattern, std::string(replacement),
+            std::regex_constants::format_first_only
         );
-        lua_pushlstring(L, result.data(), result.size());
+        lua_pushstring(L, result.c_str());
         return 1;
     }
 

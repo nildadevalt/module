@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include <ltable.h>
+#include <lapi.h>
 #include <Windows.h>
 #include <wincrypt.h>
 
@@ -180,67 +181,6 @@ namespace Crypt
             ok = CryptDecrypt(cryptoKey, 0, TRUE, 0,
                 reinterpret_cast<BYTE*>(data.data()), &length) != FALSE;
             if (ok) data.resize(length);
-        }
-
-        if (cryptoKey) CryptDestroyKey(cryptoKey);
-        CryptReleaseContext(provider, 0);
-        return ok;
-    }
-
-    inline bool aes_ctr_crypt(std::string& data, const std::string& key,
-        const std::string& iv)
-    {
-        if (key.size() != 32 || iv.size() < 16)
-            return false;
-
-        HCRYPTPROV provider = 0;
-        HCRYPTKEY cryptoKey = 0;
-        if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
-            return false;
-
-        struct AesKeyBlob
-        {
-            BLOBHEADER header;
-            DWORD keySize;
-            BYTE key[32];
-        } blob{};
-        blob.header.bType = PLAINTEXTKEYBLOB;
-        blob.header.bVersion = CUR_BLOB_VERSION;
-        blob.header.aiKeyAlg = CALG_AES_256;
-        blob.keySize = 32;
-        memcpy(blob.key, key.data(), 32);
-
-        bool ok = CryptImportKey(provider, reinterpret_cast<BYTE*>(&blob), sizeof(blob),
-            0, 0, &cryptoKey) != FALSE;
-        DWORD mode = CRYPT_MODE_ECB;
-        ok = ok && CryptSetKeyParam(cryptoKey, KP_MODE, reinterpret_cast<BYTE*>(&mode), 0);
-
-        if (ok)
-        {
-            std::string counter(iv.data(), iv.data() + 16);
-            size_t offset = 0;
-            while (offset < data.size() && ok)
-            {
-                BYTE block[16];
-                memcpy(block, counter.data(), 16);
-                DWORD len = 16;
-                // Encrypt counter block in-place (ECB, no padding)
-                ok = CryptEncrypt(cryptoKey, 0, FALSE, 0, block, &len, 16) != FALSE && len == 16;
-                if (!ok) break;
-
-                size_t chunk = (std::min)(size_t(16), data.size() - offset);
-                for (size_t i = 0; i < chunk; ++i)
-                    data[offset + i] = static_cast<char>(static_cast<unsigned char>(data[offset + i]) ^ block[i]);
-                offset += chunk;
-
-                // increment counter (big-endian)
-                for (int i = 15; i >= 0; --i)
-                {
-                    unsigned char c = static_cast<unsigned char>(counter[i]);
-                    counter[i] = static_cast<char>(c + 1);
-                    if (counter[i] != 0) break;
-                }
-            }
         }
 
         if (cryptoKey) CryptDestroyKey(cryptoKey);
@@ -558,6 +498,8 @@ namespace Crypt
         const char* rawData = luaL_checklstring(L, 1, &dataLength);
         const char* encodedKey = luaL_checklstring(L, 2, &keyLength);
         const char* mode = luaL_optstring(L, 4, ("CBC"));
+        if (_stricmp(mode, ("CBC")) != 0)
+            luaL_argerror(L, 4, ("only CBC mode is supported"));
 
         std::string key;
         if (!base64_decode_string(std::string(encodedKey, keyLength), key) || key.size() != 32)
@@ -578,17 +520,8 @@ namespace Crypt
         }
 
         std::string encrypted(rawData, dataLength);
-        bool ok = false;
-        if (_stricmp(mode, ("CBC")) == 0)
-            ok = aes_cbc_crypt(encrypted, key, iv, true);
-        else if (_stricmp(mode, ("CTR")) == 0)
-            ok = aes_ctr_crypt(encrypted, key, iv);
-        else
-            luaL_argerror(L, 4, ("unsupported cipher mode"));
-
-        if (!ok)
-            luaL_error(L, ("encryption failed"));
-
+        if (!aes_cbc_crypt(encrypted, key, iv, true))
+            luaL_error(L, ("AES-CBC encryption failed"));
         const std::string encoded = base64_encode_bytes(
             reinterpret_cast<const uint8_t*>(encrypted.data()), encrypted.size());
         const std::string encodedIv = base64_encode_bytes(
@@ -605,6 +538,8 @@ namespace Crypt
         const char* encodedKey = luaL_checklstring(L, 2, &keyLength);
         const char* encodedIv = luaL_checklstring(L, 3, &ivLength);
         const char* mode = luaL_optstring(L, 4, ("CBC"));
+        if (_stricmp(mode, ("CBC")) != 0)
+            luaL_argerror(L, 4, ("only CBC mode is supported"));
 
         std::string encrypted, key, iv;
         if (!base64_decode_string(std::string(encodedData, encryptedLength), encrypted))
@@ -613,18 +548,8 @@ namespace Crypt
             luaL_argerror(L, 2, ("key must be a base64 encoded 256-bit key"));
         if (!base64_decode_string(std::string(encodedIv, ivLength), iv) || iv.size() < 16)
             luaL_argerror(L, 3, ("IV must contain at least 16 decoded bytes"));
-
-        bool ok = false;
-        if (_stricmp(mode, ("CBC")) == 0)
-            ok = aes_cbc_crypt(encrypted, key, iv, false);
-        else if (_stricmp(mode, ("CTR")) == 0)
-            ok = aes_ctr_crypt(encrypted, key, iv);
-        else
-            luaL_argerror(L, 4, ("unsupported cipher mode"));
-
-        if (!ok)
-            luaL_error(L, ("decryption failed"));
-
+        if (!aes_cbc_crypt(encrypted, key, iv, false))
+            luaL_error(L, ("AES-CBC decryption failed"));
         lua_pushlstring(L, encrypted.data(), encrypted.size());
         return 1;
     }
@@ -961,6 +886,30 @@ namespace Crypt
         return 1;
     }
 
+    // Returns the raw serialized proto of a Lua closure. debUNC uses this to
+    // confirm the executor can reach a function's bytecode the same way it can
+    // reach a script's. C closures have no proto, so they report nil.
+    int getfunctionbytecode(lua_State* L) {
+        luaL_checktype(L, 1, LUA_TFUNCTION);
+
+        const auto closure = clvalue(index2addr(L, 1));
+
+        if (!closure || closure->isC) {
+            lua_pushnil(L);
+            return 1;
+        }
+
+        const Proto* proto = closure->l.p;
+        if (!proto) {
+            lua_pushnil(L);
+            return 1;
+        }
+
+        std::vector<unsigned char> protoBytes = getProtoBytes(proto);
+        lua_pushlstring(L, reinterpret_cast<const char*>(protoBytes.data()), protoBytes.size());
+        return 1;
+    }
+
     void ResetLibraryState()
     {
         // Crypt has no mutable global state to reset
@@ -972,6 +921,7 @@ namespace Crypt
         funcnameinc = 0;
 
         Environment->make_global(L, ("getfunctionhash"), getfunctionhash, funcnameinc++);
+        Environment->make_global(L, ("getfunctionbytecode"), getfunctionbytecode, funcnameinc++);
         Environment->make_global(L, ("base64encode"), base64encode, funcnameinc++);
         Environment->make_global(L, ("base64decode"), base64decode, funcnameinc++);
         Environment->make_global(L, ("base64_encode"), base64_encode, funcnameinc++);

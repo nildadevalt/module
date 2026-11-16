@@ -1,0 +1,8 @@
+print("[IP] isrbxactive=" .. tostring(isrbxactive()))
+keypress(0x7C)
+task.wait(0.3)
+print("[IP] F13 down=" .. tostring(game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.F13)))
+keyrelease(0x7C)
+task.wait(0.3)
+print("[IP] after release down=" .. tostring(game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.F13)))
+print("SUNCIO-DONE")

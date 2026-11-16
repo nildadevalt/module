@@ -16,6 +16,7 @@ end
 
 local function test(name, aliases, callback, target)
 	running = running + 1
+	print("[RUN] " .. tostring(name))
 
 	task.spawn(function()
 		if not callback then
@@ -73,6 +74,7 @@ task.defer(function()
 	print("⛔ " .. fails .. " tests failed")
 	print("⚠️ " .. undefined .. " globals are missing aliases")
 	print("⏱️ Completed in " .. string.format("%.2f", os.clock() - startTime) .. "s")
+	print("SUNCIO-DONE")
 end)
 
 -- Cache

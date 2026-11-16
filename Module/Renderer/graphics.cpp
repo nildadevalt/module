@@ -2,6 +2,7 @@
 #include "ui/ui.h"
 #include "render_chain.h"
 #include <RBX/task_scheduler/task_scheduler.hpp>
+#include <RBX/environment/libs/drawingimmediate/drawingimmediate.hpp>
 #include <Utilitys/Log.hpp>
 
 #include <imgui/addons/imgui_notify.h>
@@ -250,6 +251,8 @@ HRESULT WINAPI module::core::graphics::c_graphics::hk_present(IDXGISwapChain* sw
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
+
+    DrawingImmediate::RenderOverlay();
 
     if (show_ui)
         ui::c_ui::draw();

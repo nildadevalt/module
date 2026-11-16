@@ -31,7 +31,7 @@ PLACE_ID = 95206881  # default: Baseplate (sUNC place 90441122676618 may be age-
 VERSION_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "Bloxstrap" / "Versions" / "version-4ea8e85481e34f46"
 PLAYER_LOGS = Path(os.environ.get("LOCALAPPDATA", "")) / "Roblox" / "logs"
 MSBUILD = Path(r"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe")
-MODULE_SRC = ROOT / "Module" / "build" / "bin" / "x64" / "Release" / "Module.dll"
+MODULE_SRC = ROOT / "Module" / "x64" / "Release" / "Module.dll"
 DECOMPILER_SRC = ROOT / "Module" / "Dependencies" / "Tovek" / "decompiler.exe"
 OFFICIAL_SCRIPT = ROOT / "Module" / ".maintenance" / "sunc-official.lua"
 OUT_DIR = ROOT / "Module" / ".maintenance"
@@ -222,8 +222,34 @@ def run_once(script_path: Path, timeout: int, run_id: str) -> dict:
         b'task.wait(3)\n'
     )
     payload = readiness + source
-    send_script_bytes(payload)
-    log(f"submitted {len(payload)} bytes")
+
+    # A single submit right after the port opens can land before the DataModel
+    # finished loading; the module then queues it but it never executes and the
+    # run looks like a hang with no output. Re-submit until the player log shows
+    # the script actually produced output.
+    deadline = time.monotonic() + 45
+    attempt = 0
+    while True:
+        attempt += 1
+        send_script_bytes(payload)
+        log(f"submitted {len(payload)} bytes (attempt {attempt})")
+
+        wait_until = time.monotonic() + 6
+        while time.monotonic() < wait_until:
+            candidate = find_player_log(start_time)
+            if candidate:
+                try:
+                    text = read_shared(candidate)
+                except Exception:
+                    text = ""
+                if "[RUN]" in text or "DIAG" in text or "[MD]" in text or "🟢" in text or "🟡" in text:
+                    break
+            time.sleep(0.5)
+        else:
+            if time.monotonic() >= deadline:
+                break
+            continue
+        break
 
     player_log: Path | None = None
     output = ""

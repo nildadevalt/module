@@ -1,0 +1,7 @@
+writefile("df_test.lua", "return 42, 'two'")
+local a, b = dofile("df_test.lua")
+print("[DF] a=" .. tostring(a) .. " b=" .. tostring(b))
+writefile("df2.lua", "return {x=1}")
+local t = dofile("df2.lua")
+print("[DF] table=" .. tostring(type(t)) .. " x=" .. tostring(t and t.x))
+print("SUNCIO-DONE")

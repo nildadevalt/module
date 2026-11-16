@@ -438,8 +438,9 @@ namespace RConsole
         // rconsolewarn
         Environment->make_global(L, "rconsolewarn", rconsolewarn, funcnameinc++);
 
-        // rconsoleerr
+        // rconsoleerr / rconsoleerror
         Environment->make_global(L, "rconsoleerr", rconsoleerr, funcnameinc++);
+        Environment->make_global(L, "rconsoleerror", rconsoleerr, funcnameinc++);
 
         // rconsoleinput / consoleinput
         Environment->make_aliases(L, rconsoleinput, funcnameinc++, {

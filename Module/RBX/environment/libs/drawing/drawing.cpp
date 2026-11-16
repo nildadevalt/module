@@ -1,4 +1,4 @@
-﻿#include "Drawing.hpp"
+#include "Drawing.hpp"
 
 #include <RBX/environment/env.hpp>
 #include <Utilitys/Utils.hpp>
@@ -912,8 +912,13 @@ namespace Drawing
         lua_setglobal(L, ("Drawing"));
 
         Environment->make_global(L, ("cleardrawcache"), L_ClearCache, funcnameinc++);
+        Environment->make_global(L, ("clear_draw_cache"), L_ClearCache, funcnameinc++);
         Environment->make_global(L, ("isrenderobj"), L_IsRenderObj, funcnameinc++);
+        Environment->make_global(L, ("isrenderobject"), L_IsRenderObj, funcnameinc++);
+        Environment->make_global(L, ("is_render_obj"), L_IsRenderObj, funcnameinc++);
         Environment->make_global(L, ("getrenderproperty"), L_GetRenderProperty, funcnameinc++);
+        Environment->make_global(L, ("get_render_property"), L_GetRenderProperty, funcnameinc++);
         Environment->make_global(L, ("setrenderproperty"), L_SetRenderProperty, funcnameinc++);
+        Environment->make_global(L, ("set_render_property"), L_SetRenderProperty, funcnameinc++);
     }
 }

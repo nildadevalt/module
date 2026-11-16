@@ -1,0 +1,5 @@
+print("[I3] iswindowactive=" .. tostring(iswindowactive()) .. " isrbxactive=" .. tostring(isrbxactive()))
+keyclick(0x7C)
+task.wait(0.4)
+print("[I3] F13 after keyclick=" .. tostring(game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.F13)))
+print("SUNCIO-DONE")

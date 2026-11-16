@@ -1,17 +1,16 @@
 {
-  "status": "invalid",
   "place_id": 90441122676618,
-  "error": "Roblox process exited; this run is invalid",
-  "checks_received": 0,
-  "failed_checks": [],
-  "completion_marker_received": false,
-  "disconnected": false,
-  "player_log": null,
+  "ran": 86,
+  "passed": 86,
+  "failed": 0,
+  "percent": 100,
+  "status": "passed",
+  "player_log": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\logs\\0.747.0.7471481_20261115T170935Z_Player_7B803_last.log",
   "evidence_log": "D:\\NERO\\ModuleV2\\.maintenance\\sunc-current.log",
-  "completed_utc": "2026-11-14T11:07:47.493555+00:00",
+  "completed_utc": "2026-11-15T17:10:59.324882+00:00",
   "deployed_module": {
     "path": "C:\\Users\\LASSE\\AppData\\Local\\Roblox\\Versions\\version-4ea8e85481e34f46\\Module.dll",
-    "bytes": 4240896,
-    "sha256": "a632281a324ae028b3c7faa4e535146d0791f19b2c33f9594c46796b5d219851"
+    "bytes": 4785664,
+    "sha256": "4e219772b443b82ff72a129be208c2c40898f948850de6497464398b051762ae"
   }
 }

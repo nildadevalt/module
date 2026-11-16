@@ -6,7 +6,6 @@
 
 #include <Windows.h>
 #include <shlobj.h>
-#include <Utilitys/ModuleLocation.hpp>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -19,6 +18,7 @@
 #include <RBX/execution/execution.hpp>
 #include <RBX/environment/libs/script/script.hpp>
 #include <RBX/environment/libs/http/http.hpp>
+#include <RBX/fflags.hpp>
 #include <map>
 #include <string>
 #include <sstream>
@@ -60,15 +60,8 @@ namespace Miscellaneous {
         static bool Launched = false;
 
         // Directory this module lives in — decompiler.exe is dropped beside it.
-        // The path is captured while the loader still knows the module; once
-        // the module is hidden from the loader lists the lookup below fails.
         static std::wstring ModuleDirectory()
         {
-            const std::wstring directory = ModuleLocation::Resolve();
-
-            if (!directory.empty())
-                return directory;
-
             HMODULE module = nullptr;
             if (!GetModuleHandleExW(
                 GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -357,10 +350,12 @@ namespace Miscellaneous {
 
         uint64_t caps = 0xFFFFFFFFFFFFFF00 | Roblox::GetCapabilities(&identity);
 
-        if (identity == 8)
+        if (identity >= 7)
         {
             caps = MaxCapabilities;
         }
+
+        LOGF("Identity", "setthreadidentity(%d) thread=%p caps=0x%llx", identity, L, static_cast<unsigned long long>(caps));
 
         L->userdata->identity = identity;
         L->userdata->capabilities = caps;
@@ -639,27 +634,29 @@ namespace Miscellaneous {
         // (std::string at +ToFlag, or a raw const char* there).
         inline bool ReadNodeName(uintptr_t node, std::string& out)
         {
-            const uintptr_t nameAddr = node + FFlagOffsets::FFlagList::ToFlag;
-            if (ReadStdString(nameAddr, out) && LooksLikeFlagName(out))
-                return true;
-
-            uintptr_t asCString = 0;
-            if (SafeRead(nameAddr, &asCString, sizeof(asCString)) && asCString)
+            for (const uintptr_t offset : { ClientOffsets::Flags::Reg::NodeKey, FFlagOffsets::FFlagList::ToFlag })
             {
-                char buffer[129] = {};
-                if (SafeRead(asCString, buffer, 128))
+                const uintptr_t nameAddr = node + offset;
+                if (ReadStdString(nameAddr, out) && LooksLikeFlagName(out))
+                    return true;
+
+                uintptr_t asCString = 0;
+                if (SafeRead(nameAddr, &asCString, sizeof(asCString)) && asCString)
                 {
-                    buffer[128] = '\0';
-                    out.assign(buffer);
-                    if (LooksLikeFlagName(out))
-                        return true;
+                    char buffer[129] = {};
+                    if (SafeRead(asCString, buffer, 128))
+                    {
+                        buffer[128] = '\0';
+                        out.assign(buffer);
+                        if (LooksLikeFlagName(out))
+                            return true;
+                    }
                 }
             }
             return false;
         }
 
-        // The registry may be stored directly or behind its singleton pointer.
-        inline uintptr_t FindFlagNode(const std::string& name)
+        inline uintptr_t FindFlagNodeExact(const std::string& name)
         {
             uintptr_t head = 0;
             uintptr_t headAddr = 0;
@@ -680,9 +677,7 @@ namespace Miscellaneous {
                 std::string nodeName;
                 for (size_t steps = 0; node && node != head && steps < ClientOffsets::Flags::Reg::MaxFlags; ++steps)
                 {
-                    if (!ReadNodeName(node, nodeName))
-                        break;
-                    if (nodeName == name)
+                    if (ReadNodeName(node, nodeName) && nodeName == name)
                         return node;
                     uintptr_t next = 0;
                     if (!SafeRead(node + ClientOffsets::Flags::Reg::NodeNext, &next, sizeof(next)))
@@ -690,6 +685,29 @@ namespace Miscellaneous {
                     if (next == node)
                         break;
                     node = next;
+                }
+            }
+            return 0;
+        }
+
+        // The registry may be stored directly or behind its singleton pointer.
+        // Callers sometimes pass prefixed names ("DFIntFoo") when the registry
+        // stores the bare name ("Foo"), so fall back to stripping known prefixes.
+        inline uintptr_t FindFlagNode(const std::string& name)
+        {
+            if (uintptr_t exact = FindFlagNodeExact(name))
+                return exact;
+
+            static constexpr const char* kPrefixes[] = {
+                "DFFlag", "FFlag", "DFInt", "FInt", "DFString", "FString", "SFFlag", "SFInt", "SFString"
+            };
+            for (const char* prefix : kPrefixes)
+            {
+                const size_t len = strlen(prefix);
+                if (name.size() > len && name.compare(0, len, prefix) == 0)
+                {
+                    if (uintptr_t stripped = FindFlagNodeExact(name.substr(len)))
+                        return stripped;
                 }
             }
             return 0;
@@ -715,7 +733,8 @@ namespace Miscellaneous {
                 !SafeRead(entry, &vtable, sizeof(vtable)))
                 return FlagKind::Unknown;
             if (vtable == ClientOffsets::Flags::ValueGetSetBoolVftable ||
-                vtable == ClientOffsets::Flags::ValueGetSetDynamicBoolVftable)
+                vtable == ClientOffsets::Flags::ValueGetSetDynamicBoolVftable ||
+                vtable == REBASE(0x7298380))
                 return FlagKind::Boolean;
             if (vtable == ClientOffsets::Flags::ValueGetSetIntVftable ||
                 vtable == ClientOffsets::Flags::ValueGetSetDynamicIntVftable)
@@ -776,9 +795,10 @@ namespace Miscellaneous {
 
             if (boolFlag)
             {
-                if (value != "true" && value != "false" && value != "0" && value != "1")
+                if (_stricmp(value.c_str(), "true") != 0 && _stricmp(value.c_str(), "false") != 0 &&
+                    value != "0" && value != "1")
                     return false;
-                unsigned char b = (value == "true" || value == "1") ? 1 : 0;
+                unsigned char b = (_stricmp(value.c_str(), "true") == 0 || value == "1") ? 1 : 0;
                 return SafeWrite(valueAddr, &b, sizeof(b));
             }
 
@@ -800,39 +820,90 @@ namespace Miscellaneous {
         }
     }
 
+    namespace FFlagAccess
+    {
+        struct DirectFFlag
+        {
+            const char* name;
+            bool isBool;
+            uintptr_t addr;
+        };
+
+        inline const DirectFFlag* FindDirectFFlag(const std::string& rawName)
+        {
+            std::string stripped = rawName;
+            static constexpr const char* kPrefixes[] = {
+                "DFFlag", "FFlag", "DFInt", "FInt", "DFString", "FString", "SFFlag", "SFInt", "SFString"
+            };
+            for (const char* prefix : kPrefixes)
+            {
+                const size_t len = strlen(prefix);
+                if (stripped.size() > len && stripped.compare(0, len, prefix) == 0)
+                {
+                    stripped = stripped.substr(len);
+                    break;
+                }
+            }
+
+            static const DirectFFlag kDirectFlags[] = {
+                { "S2PhysicsSenderRate",    false, FFlagOffsets::FFlags::S2PhysicsSenderRate },
+                { "FallHeightToggle",       true,  FFlagOffsets::FFlags::FallHeightToggle },
+                { "TaskSchedulerTargetFps", false, FFlagOffsets::FFlags::TaskSchedulerTargetFps },
+            };
+            for (const auto& entry : kDirectFlags)
+            {
+                if (stripped == entry.name)
+                    return &entry;
+            }
+            return nullptr;
+        }
+    }
+
     int setfflag(lua_State* L)
     {
         const char* name = luaL_checkstring(L, 1);
-        const char* value = luaL_checkstring(L, 2);
+        const char* value = lua_isboolean(L, 2)
+            ? (lua_toboolean(L, 2) ? "true" : "false")
+            : luaL_checkstring(L, 2);
 
         const uintptr_t node = FFlagAccess::FindFlagNode(name);
-        if (node)
+        if (!node || FFlagAccess::GetFlagKind(node) == FFlagAccess::FlagKind::Unknown)
         {
-            if (FFlagAccess::WriteValueFromString(node, name, value))
-                return 0;
-        }
-
-        if (_stricmp(name, "TaskSchedulerTargetFps") == 0)
-        {
-            char* end = nullptr;
-            errno = 0;
-            long long parsed = _strtoi64(value, &end, 10);
-            if (errno != ERANGE && end != value && end == value + strlen(value) &&
-                parsed >= 0 && parsed <= INT32_MAX)
+            if (const auto* direct = FFlagAccess::FindDirectFFlag(name))
             {
-                bool ok = false;
-                [&]() __declspec(noinline) {
-                    __try {
-                        *reinterpret_cast<int32_t*>(Offsets::Flags::TaskSchedulerTargetFps) = static_cast<int32_t>(parsed);
-                        ok = true;
-                    } __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
-                }();
-                if (ok) return 0;
+                if (direct->isBool)
+                {
+                    if (_stricmp(value, "true") != 0 && _stricmp(value, "false") != 0 &&
+                        strcmp(value, "0") != 0 && strcmp(value, "1") != 0)
+                    {
+                        lua_pushboolean(L, 0);
+                        return 1;
+                    }
+                    const unsigned char b = (_stricmp(value, "true") == 0 || strcmp(value, "1") == 0) ? 1 : 0;
+                    lua_pushboolean(L, FFlagAccess::SafeWrite(direct->addr, &b, sizeof(b)) ? 1 : 0);
+                    return 1;
+                }
+                char* end = nullptr;
+                errno = 0;
+                const long long parsed = _strtoi64(value, &end, 10);
+                if (errno == ERANGE || end == value || *end != '\0' || parsed < INT32_MIN || parsed > INT32_MAX)
+                {
+                    lua_pushboolean(L, 0);
+                    return 1;
+                }
+                const int32_t v32 = static_cast<int32_t>(parsed);
+                lua_pushboolean(L, FFlagAccess::SafeWrite(direct->addr, &v32, sizeof(v32)) ? 1 : 0);
+                return 1;
+            }
+            if (!node)
+            {
+                lua_pushboolean(L, 0);
+                return 1;
             }
         }
 
-        luaL_error(L, ("setfflag: unknown or unsupported flag '%s'"), name);
-        return 0;
+        lua_pushboolean(L, FFlagAccess::WriteValueFromString(node, name, value) ? 1 : 0);
+        return 1;
     }
 
     int getfflag(lua_State* L)
@@ -840,44 +911,99 @@ namespace Miscellaneous {
         const char* name = luaL_checkstring(L, 1);
 
         const uintptr_t node = FFlagAccess::FindFlagNode(name);
-        if (node)
+        if (!node || FFlagAccess::GetFlagKind(node) == FFlagAccess::FlagKind::Unknown)
         {
-            std::string value;
-            if (FFlagAccess::ReadValueAsString(node, name, value))
+            if (const auto* direct = FFlagAccess::FindDirectFFlag(name))
             {
-                lua_pushlstring(L, value.data(), value.size());
+                if (direct->isBool)
+                {
+                    unsigned char b = 0;
+                    if (!FFlagAccess::SafeRead(direct->addr, &b, sizeof(b)))
+                    {
+                        lua_pushnil(L);
+                        return 1;
+                    }
+                    lua_pushstring(L, b ? "true" : "false");
+                    return 1;
+                }
+                int32_t v32 = 0;
+                if (!FFlagAccess::SafeRead(direct->addr, &v32, sizeof(v32)))
+                {
+                    lua_pushnil(L);
+                    return 1;
+                }
+                const std::string out = std::to_string(v32);
+                lua_pushlstring(L, out.data(), out.size());
+                return 1;
+            }
+            if (!node)
+            {
+                lua_pushnil(L);
                 return 1;
             }
         }
 
-        // Fallbacks for common flags when registry lookup fails
-        if (_stricmp(name, "TaskSchedulerTargetFps") == 0)
+        std::string value;
+        if (!FFlagAccess::ReadValueAsString(node, name, value))
         {
-            int32_t cap = 60;
-            bool ok = false;
-            [&]() __declspec(noinline) {
-                __try {
-                    cap = *reinterpret_cast<int32_t*>(Offsets::Flags::TaskSchedulerTargetFps);
-                    ok = true;
-                } __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
-            }();
-            if (ok)
-            {
-                const int v = cap > 0 ? cap : 60;
-                char buf[32]; snprintf(buf, sizeof(buf), "%d", v);
-                lua_pushstring(L, buf);
-                return 1;
-            }
-        }
-        if (_stricmp(name, "MaxFrameBufferSize") == 0)
-        {
-            // reasonable default if not discoverable
-            lua_pushstring(L, "4096");
+            lua_pushnil(L);
             return 1;
         }
 
-        lua_pushnil(L);
+        lua_pushlstring(L, value.data(), value.size());
         return 1;
+    }
+
+    int getfflagtype(lua_State* L)
+    {
+        const char* name = luaL_checkstring(L, 1);
+        const uintptr_t node = FFlagAccess::FindFlagNode(name);
+        if (!node || FFlagAccess::GetFlagKind(node) == FFlagAccess::FlagKind::Unknown)
+        {
+            if (const auto* direct = FFlagAccess::FindDirectFFlag(name))
+            {
+                lua_pushstring(L, direct->isBool ? "bool" : "int");
+                return 1;
+            }
+            lua_pushstring(L, "unknown");
+            return 1;
+        }
+
+        switch (FFlagAccess::GetFlagKind(node))
+        {
+        case FFlagAccess::FlagKind::Boolean: lua_pushstring(L, "bool"); return 1;
+        case FFlagAccess::FlagKind::Integer: lua_pushstring(L, "int"); return 1;
+        case FFlagAccess::FlagKind::String:  lua_pushstring(L, "string"); return 1;
+        default:                             lua_pushstring(L, "unknown"); return 1;
+        }
+    }
+
+    int getexecutorversion(lua_State* L)
+    {
+        lua_pushstring(L, "1.0");
+        return 1;
+    }
+
+    int get_process_identifier(lua_State* L)
+    {
+        lua_pushinteger(L, static_cast<int>(GetCurrentProcessId()));
+        return 1;
+    }
+
+    int getobjects(lua_State* L)
+    {
+        if (lua_type(L, 1) == LUA_TNUMBER)
+        {
+            const std::string url = "rbxassetid://" + std::to_string(static_cast<long long>(lua_tonumber(L, 1)));
+            lua_pushlstring(L, url.data(), url.size());
+            lua_replace(L, 1);
+        }
+        if (lua_type(L, 1) == LUA_TSTRING)
+        {
+            lua_getglobal(L, "game");
+            lua_insert(L, 1);
+        }
+        return GetObjects(L);
     }
 
     int queueonteleport(lua_State* L)
@@ -1228,10 +1354,8 @@ namespace Miscellaneous {
 
         lua_pop(L, 1);
 
-        std::string outName;
         wchar_t pathBuf[MAX_PATH] = {};
         if (savePath && savePath[0]) {
-            outName = savePath;
             if (!Shared::workspace_folder.empty()) {
                 std::wstring wsFolder = Shared::workspace_folder.wstring();
                 wcscpy_s(pathBuf, MAX_PATH, wsFolder.c_str());
@@ -1245,33 +1369,28 @@ namespace Miscellaneous {
             }
         }
         else {
-            outName = "game.rbxlx";
             if (!Shared::workspace_folder.empty()) {
                 std::wstring wsFolder = Shared::workspace_folder.wstring();
                 wcscpy_s(pathBuf, MAX_PATH, wsFolder.c_str());
-                wcscat_s(pathBuf, MAX_PATH, L"\\game.rbxlx");
+                wcscat_s(pathBuf, MAX_PATH, L"\\savefile.lua");
             }
             else {
                 wchar_t desktop[MAX_PATH] = {};
                 SHGetFolderPathW(NULL, CSIDL_DESKTOP, NULL, 0, desktop);
                 wcscpy_s(pathBuf, MAX_PATH, desktop);
-                wcscat_s(pathBuf, MAX_PATH, L"\\game.rbxlx");
+                wcscat_s(pathBuf, MAX_PATH, L"\\savefile.lua");
             }
         }
 
-        // Ensure parent directory exists for provided paths
-        {
-            std::filesystem::path p(pathBuf);
-            std::error_code ec;
-            if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path(), ec);
-        }
-
-        std::ofstream file(pathBuf, std::ios::binary);
+        std::ofstream file(pathBuf);
         if (file.is_open()) {
             file << output;
             file.close();
+            lua_pushboolean(L, true);
         }
-        lua_pushlstring(L, outName.data(), outName.size());
+        else {
+            lua_pushboolean(L, false);
+        }
         return 1;
     }
 
@@ -1286,14 +1405,18 @@ namespace Miscellaneous {
         Environment->make_global(L, ("saveinstance"), saveinstance, Miscellaneous::funcnameinc++);
         Environment->make_global(L, ("identifyexecutor"), identifyexecutor, Miscellaneous::funcnameinc++);
         Environment->make_global(L, ("getexecutorname"), getexecutorname, Miscellaneous::funcnameinc++);
-        Environment->make_aliases(L, setthreadidentity, Miscellaneous::funcnameinc, { ("setthreadidentity"), ("setidentity"), ("setthreadcontext") });
-       Environment->make_aliases(L, getthreadidentity, Miscellaneous::funcnameinc, { ("getthreadidentity"), ("getidentity"), ("getthreadcontext") });
-       Environment->make_global(L, ("setfpscap"), setfpscap, Miscellaneous::funcnameinc++);
-       Environment->make_global(L, ("getfpscap"), getfpscap, Miscellaneous::funcnameinc++);
-       Environment->make_global(L, ("setfflag"), setfflag, Miscellaneous::funcnameinc++);
-       Environment->make_global(L, ("getfflag"), getfflag, Miscellaneous::funcnameinc++);
-       Environment->make_global(L, ("GetObjects"), GetObjects, Miscellaneous::funcnameinc++);
-      Environment->make_aliases(L, queueonteleport, Miscellaneous::funcnameinc, { ("queueonteleport"), ("queue_on_teleport") });
+        Environment->make_global(L, ("getexecutorversion"), getexecutorversion, Miscellaneous::funcnameinc++);
+        Environment->make_global(L, ("get_process_identifier"), get_process_identifier, Miscellaneous::funcnameinc++);
+        Environment->make_aliases(L, setthreadidentity, Miscellaneous::funcnameinc, { ("setthreadidentity"), ("set_thread_identity"), ("setidentity"), ("setthreadcontext") });
+        Environment->make_aliases(L, getthreadidentity, Miscellaneous::funcnameinc, { ("getthreadidentity"), ("get_thread_identity"), ("getidentity"), ("getthreadcontext") });
+        Environment->make_global(L, ("setfpscap"), setfpscap, Miscellaneous::funcnameinc++);
+        Environment->make_global(L, ("getfpscap"), getfpscap, Miscellaneous::funcnameinc++);
+        Environment->make_global(L, ("setfflag"), setfflag, Miscellaneous::funcnameinc++);
+        Environment->make_global(L, ("getfflag"), getfflag, Miscellaneous::funcnameinc++);
+        Environment->make_aliases(L, getfflagtype, Miscellaneous::funcnameinc, { ("getfflagtype"), ("getfastflagtype") });
+        Environment->make_global(L, ("GetObjects"), GetObjects, Miscellaneous::funcnameinc++);
+        Environment->make_global(L, ("getobjects"), getobjects, Miscellaneous::funcnameinc++);
+        Environment->make_aliases(L, queueonteleport, Miscellaneous::funcnameinc, { ("queueonteleport"), ("queue_on_teleport"), ("queueteleport") });
      Environment->make_aliases(L, clearteleportqueue, Miscellaneous::funcnameinc, { ("clearteleportqueue"), ("clear_teleport_queue"), ("clearqueueonteleport") });
        Environment->make_aliases(L, gethui, Miscellaneous::funcnameinc, { ("gethui"), ("get_hidden_ui"), ("get_hidden_gui") });
     }

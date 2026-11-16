@@ -544,5 +544,7 @@ end
         Environment->make_global(L, "runonactor", Actor::runonactor, funcnameinc++);
         Environment->make_global(L, "create_comm_channel", Actor::create_comm_channel, funcnameinc++);
         Environment->make_global(L, "get_comm_channel", Actor::get_comm_channel, funcnameinc++);
+        Environment->make_global(L, "createcommchannel", Actor::create_comm_channel, funcnameinc++);
+        Environment->make_global(L, "getcommchannel", Actor::get_comm_channel, funcnameinc++);
     }
 }

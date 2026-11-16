@@ -12,6 +12,9 @@
 #include <RBX/update.hpp>
 #include <Utilitys/Log.hpp>
 
+#include <mutex>
+#include <unordered_set>
+
 template <typename T>
 __forceinline static bool IsPtrValid(T value)
 {
@@ -1540,7 +1543,10 @@ namespace Signals {
         luaL_checktype(L, 1, LUA_TUSERDATA);
         const int index = luaL_checkinteger(L, 2);
         if (index < 1)
-            luaL_argerror(L, 2, ("index must be greater than zero"));
+        {
+            lua_pushnil(L);
+            return 1;
+        }
 
         getconnections(L);
         lua_rawgeti(L, -1, index);
@@ -1826,16 +1832,39 @@ namespace Signals {
         luaL_checktype(LS, 1, LUA_TUSERDATA);
         luaL_checktype(LS, 2, LUA_TUSERDATA);
 
-        int Toggle = 0;
-        if (lua_isboolean(LS, 3))
-            Toggle = lua_toboolean(LS, 3) ? 1 : 0;
-        else if (lua_isnumber(LS, 3))
-            Toggle = (int)lua_tonumber(LS, 3);
-        else if (lua_isnoneornil(LS, 3))
-            Toggle = 0;
-
         uintptr_t BasePart = *reinterpret_cast<uintptr_t*>(lua_touserdata(LS, 1));
         uintptr_t BasePartTouch = *reinterpret_cast<uintptr_t*>(lua_touserdata(LS, 2));
+
+        static std::mutex s_touchMutex;
+        static std::unordered_set<uint64_t> s_activeTouches;
+        const uint64_t pairKey = (BasePart < BasePartTouch)
+            ? (static_cast<uint64_t>(BasePart) ^ (static_cast<uint64_t>(BasePartTouch) * 0x9e3779b97f4a7c15ULL))
+            : (static_cast<uint64_t>(BasePartTouch) ^ (static_cast<uint64_t>(BasePart) * 0x9e3779b97f4a7c15ULL));
+
+        int Toggle = 0;
+        if (lua_isboolean(LS, 3)) {
+            std::lock_guard<std::mutex> lock(s_touchMutex);
+            if (s_activeTouches.contains(pairKey)) {
+                Toggle = 1;
+                s_activeTouches.erase(pairKey);
+            } else {
+                Toggle = 0;
+                s_activeTouches.insert(pairKey);
+            }
+        }
+        else if (lua_isnumber(LS, 3)) {
+            Toggle = (int)lua_tonumber(LS, 3);
+            std::lock_guard<std::mutex> lock(s_touchMutex);
+            if (Toggle == 0)
+                s_activeTouches.insert(pairKey);
+            else
+                s_activeTouches.erase(pairKey);
+        }
+        else if (lua_isnoneornil(LS, 3)) {
+            Toggle = 0;
+            std::lock_guard<std::mutex> lock(s_touchMutex);
+            s_activeTouches.insert(pairKey);
+        }
 
         if (BasePart && BasePartTouch) {
             uintptr_t Touch1 = 0;
@@ -1898,6 +1927,16 @@ namespace Signals {
             {("PlayerRemoving"), ("Players")},
             {("Chatted"), ("Players")},
             {("MembershipChanged"), ("Players")},
+            {("Activated"), ("Tool")},
+            {("Deactivated"), ("Tool")},
+            {("Equipped"), ("Tool")},
+            {("Unequipped"), ("Tool")},
+            {("OnServerEvent"), ("RemoteEvent")},
+            {("OnClientEvent"), ("RemoteEvent")},
+            {("Triggered"), ("ProximityPrompt")},
+            {("TriggerEnded"), ("ProximityPrompt")},
+            {("MouseClick"), ("ClickDetector")},
+            {("RightMouseClick"), ("ClickDetector")},
         };
 
         for (auto& sig : signals) {
@@ -1959,6 +1998,50 @@ namespace Signals {
         }
     }
 
+    static bool read_engine_string(uintptr_t stringObject, char* out, size_t outSize)
+    {
+        if (!stringObject || !IsPointerValid(stringObject, 0x20))
+            return false;
+
+        size_t length = 0;
+        size_t capacity = 0;
+        if (!signal_safe_read(reinterpret_cast<void*>(stringObject + 0x10), &length, sizeof(length)) ||
+            !signal_safe_read(reinterpret_cast<void*>(stringObject + 0x18), &capacity, sizeof(capacity)))
+            return false;
+
+        if (length == 0 || length >= outSize || capacity < length)
+            return false;
+
+        uintptr_t data = stringObject;
+        if (capacity >= 16)
+        {
+            if (!signal_safe_read(reinterpret_cast<void*>(stringObject), &data, sizeof(data)) ||
+                !data || !IsPointerValid(data, length))
+                return false;
+        }
+
+        if (!signal_safe_read(reinterpret_cast<void*>(data), out, length))
+            return false;
+        out[length] = '\0';
+        return out[0] != '\0';
+    }
+
+    static bool read_instance_class_name(uintptr_t instance, char* out, size_t outSize)
+    {
+        uintptr_t classDescriptor = 0;
+        if (!signal_safe_read(reinterpret_cast<void*>(instance + Offsets::Instance::ClassDescriptor),
+                &classDescriptor, sizeof(classDescriptor)) ||
+            !classDescriptor || !IsPointerValid(classDescriptor))
+            return false;
+
+        uintptr_t nameString = 0;
+        signal_safe_read(reinterpret_cast<void*>(classDescriptor + Offsets::Instance::ClassName),
+            &nameString, sizeof(nameString));
+
+        return read_engine_string(nameString, out, outSize) ||
+            read_engine_string(classDescriptor + Offsets::Instance::ClassName, out, outSize);
+    }
+
     int cansignalreplicate(lua_State* L)
     {
         
@@ -1981,25 +2064,24 @@ namespace Signals {
             }
 
             uintptr_t owningInstance = 0;
-            if (!signal_safe_read(reinterpret_cast<void*>(eventInstance + 0x18), &owningInstance, sizeof(owningInstance)) || !owningInstance || !IsPointerValid(owningInstance)) {
+            if (!signal_safe_read(reinterpret_cast<void*>(eventInstance + ClientOffsets::RemoteEvent::OwningInstance), &owningInstance, sizeof(owningInstance)) || !owningInstance || !IsPointerValid(owningInstance)) {
                 lua_pushboolean(L, false);
                 return 1;
             }
 
-            Roblox::PushInstance(L, reinterpret_cast<void*>(owningInstance));
-            lua_getfield(L, -1, ("ClassName"));
-            const char* className = lua_isstring(L, -1) ? lua_tostring(L, -1) : nullptr;
-            lua_pop(L, 1);
-            lua_pop(L, 1);
-
-            if (!className) {
+            char className[128] = {};
+            if (!read_instance_class_name(owningInstance, className, sizeof(className))) {
                 lua_pushboolean(L, false);
                 return 1;
             }
 
             bool replicable = (strcmp(className, ("RemoteEvent")) == 0 ||
+                strcmp(className, ("UnreliableRemoteEvent")) == 0 ||
                 strcmp(className, ("RemoteFunction")) == 0 ||
-                strcmp(className, ("UnvalidatedRemoteEvent")) == 0);
+                strcmp(className, ("UnvalidatedRemoteEvent")) == 0 ||
+                strcmp(className, ("Tool")) == 0 ||
+                strcmp(className, ("ClickDetector")) == 0 ||
+                strcmp(className, ("ProximityPrompt")) == 0);
             lua_pushboolean(L, replicable);
             return 1;
         }
@@ -2009,7 +2091,7 @@ namespace Signals {
         }
     }
 
-    static bool ReadSignalDescriptor(lua_State* L, int index, uintptr_t& outEventInstance, uintptr_t& outDescriptor, uintptr_t& outSignature)
+    static bool ReadSignalDescriptor(lua_State* L, int index, uintptr_t& outEventInstance, uintptr_t& outDescriptor, uintptr_t& outSignature, uintptr_t& outSignatureEnd)
     {
         if (!lua_isuserdata(L, index))
             return false;
@@ -2028,15 +2110,18 @@ namespace Signals {
         if (!descriptor || !IsPointerValid(descriptor))
             return false;
 
-        uintptr_t signature = 0;
+        uintptr_t signature = 0, signatureEnd = 0;
         if (!signal_safe_read(reinterpret_cast<void*>(descriptor + ClientOffsets::RemoteEvent::SignatureFromDescriptor), &signature, sizeof(signature)))
             return false;
-        if (!signature || !IsPointerValid(signature))
+        if (!signal_safe_read(reinterpret_cast<void*>(descriptor + ClientOffsets::RemoteEvent::SignatureFromDescriptor + 0x8), &signatureEnd, sizeof(signatureEnd)))
+            return false;
+        if (!signature || !IsPointerValid(signature) || signatureEnd < signature)
             return false;
 
         outEventInstance = eventInstance;
         outDescriptor = descriptor;
         outSignature = signature;
+        outSignatureEnd = signatureEnd;
         return true;
     }
 
@@ -2048,8 +2133,8 @@ namespace Signals {
         if (strcmp(luaL_typename(L, 1), ("RBXScriptSignal")) != 0)
             luaL_typeerror(L, 1, (("RBXScriptSignal")));
 
-        uintptr_t eventInstance, descriptor, signature;
-        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature)) {
+        uintptr_t eventInstance, descriptor, signature, signatureEnd;
+        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature, signatureEnd)) {
             lua_newtable(L);
             return 1;
         }
@@ -2057,7 +2142,7 @@ namespace Signals {
         lua_newtable(L);
         int idx = 1;
 
-        for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart; current; current += ClientOffsets::RemoteEvent::SignatureTypeStride)
+        for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart; current < signatureEnd; current += ClientOffsets::RemoteEvent::SignatureTypeStride)
         {
             if (!IsPointerValid(reinterpret_cast<uintptr_t*>(current)))
                 break;
@@ -2071,12 +2156,66 @@ namespace Signals {
             int typeIdentifier = 0;
             signal_safe_read(reinterpret_cast<void*>(typePtr + 0x30), &typeIdentifier, sizeof(typeIdentifier));
 
-            uintptr_t namePtr = 0;
-            signal_safe_read(reinterpret_cast<void*>(typePtr + 0x08), &namePtr, sizeof(namePtr));
-
             char nameBuf[256] = { 0 };
-            if (namePtr && IsPointerValid(namePtr)) {
-                signal_safe_read(reinterpret_cast<void*>(namePtr), nameBuf, sizeof(nameBuf) - 1);
+            auto looksLikeIdent = [](const char* s) -> bool {
+                if (!s || !s[0]) return false;
+                if (!std::isalpha(static_cast<unsigned char>(s[0])) && s[0] != '_') return false;
+                for (size_t i = 1; s[i]; ++i) {
+                    if (!std::isalnum(static_cast<unsigned char>(s[i])) && s[i] != '_') return false;
+                }
+                return true;
+            };
+
+            bool gotArgName = false;
+            auto tryReadIdentPtr = [&](uintptr_t addr) -> bool {
+                if (!addr || !IsPointerValid(addr)) return false;
+                if (read_engine_string(addr, nameBuf, sizeof(nameBuf)) && looksLikeIdent(nameBuf))
+                    return true;
+                if (signal_safe_read(reinterpret_cast<void*>(addr), nameBuf, 64))
+                {
+                    nameBuf[64] = '\0';
+                    if (looksLikeIdent(nameBuf))
+                        return true;
+                }
+                for (uintptr_t inner : { 0x00, 0x08, 0x10 })
+                {
+                    uintptr_t p2 = 0;
+                    if (signal_safe_read(reinterpret_cast<void*>(addr + inner), &p2, sizeof(p2)) &&
+                        p2 && IsPointerValid(p2) &&
+                        signal_safe_read(reinterpret_cast<void*>(p2), nameBuf, 64))
+                    {
+                        nameBuf[64] = '\0';
+                        if (looksLikeIdent(nameBuf))
+                            return true;
+                    }
+                }
+                nameBuf[0] = '\0';
+                return false;
+            };
+
+            for (uintptr_t off = 0x08; off <= 0x68; off += 0x08)
+            {
+                if (read_engine_string(current + off, nameBuf, sizeof(nameBuf)) && looksLikeIdent(nameBuf))
+                {
+                    gotArgName = true;
+                    break;
+                }
+                uintptr_t ptr = 0;
+                if (signal_safe_read(reinterpret_cast<void*>(current + off), &ptr, sizeof(ptr)) && tryReadIdentPtr(ptr))
+                {
+                    gotArgName = true;
+                    break;
+                }
+                nameBuf[0] = '\0';
+            }
+
+            if (!gotArgName)
+            {
+                uintptr_t namePtr = 0;
+                signal_safe_read(reinterpret_cast<void*>(typePtr + 0x08), &namePtr, sizeof(namePtr));
+                if (namePtr && IsPointerValid(namePtr)) {
+                    signal_safe_read(reinterpret_cast<void*>(namePtr), nameBuf, sizeof(nameBuf) - 1);
+                }
             }
 
             lua_newtable(L);
@@ -2098,8 +2237,8 @@ namespace Signals {
         if (strcmp(luaL_typename(L, 1), ("RBXScriptSignal")) != 0)
             luaL_typeerror(L, 1, (("RBXScriptSignal")));
 
-        uintptr_t eventInstance, descriptor, signature;
-        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature)) {
+        uintptr_t eventInstance, descriptor, signature, signatureEnd;
+        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature, signatureEnd)) {
             lua_newtable(L);
             return 1;
         }
@@ -2107,7 +2246,7 @@ namespace Signals {
         lua_newtable(L);
         int idx = 1;
 
-        for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart; current; current += ClientOffsets::RemoteEvent::SignatureTypeStride)
+        for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart; current < signatureEnd; current += ClientOffsets::RemoteEvent::SignatureTypeStride)
         {
             if (!IsPointerValid(reinterpret_cast<uintptr_t*>(current)))
                 break;
@@ -2118,17 +2257,10 @@ namespace Signals {
             if (!typePtr || !IsPointerValid(typePtr))
                 break;
 
-            uintptr_t namePtr = 0;
-            if (!signal_safe_read(reinterpret_cast<void*>(typePtr + 0x08), &namePtr, sizeof(namePtr)))
-                break;
-
-            if (namePtr && IsPointerValid(namePtr)) {
-                char nameBuf[256] = { 0 };
-                if (signal_safe_read(reinterpret_cast<void*>(namePtr), nameBuf, sizeof(nameBuf) - 1)) {
-                    lua_pushstring(L, nameBuf);
-                    lua_rawseti(L, -2, idx++);
-                }
-            }
+            int typeIdentifier = 0;
+            signal_safe_read(reinterpret_cast<void*>(typePtr + 0x30), &typeIdentifier, sizeof(typeIdentifier));
+            lua_pushstring(L, GetRobloxTypeName(typeIdentifier));
+            lua_rawseti(L, -2, idx++);
         }
 
         return 1;

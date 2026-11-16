@@ -1,0 +1,23 @@
+print("[SG] start")
+local s = Signal.new()
+local got = nil
+local c = s:Connect(function(...) got = table.pack(...) end)
+s:Fire(123, "x")
+print("[SG] after fire got=" .. tostring(got and got[1]) .. "," .. tostring(got and got[2]))
+c:Disconnect()
+print("[SG] disconnected")
+
+task.spawn(function()
+    local s2 = Signal.new()
+    local onceCount = 0
+    s2:Once(function() onceCount += 1 end)
+    s2:Fire(1)
+    print("[SG] onceCount=" .. onceCount)
+    task.wait(0.2)
+    print("[SG] onceCount after wait=" .. onceCount)
+    local t0 = os.clock()
+    local v = s2:Wait()
+    print("[SG] Wait returned " .. tostring(v) .. " t=" .. string.format("%.2f", os.clock()-t0))
+    print("SUNCIO-DONE")
+end)
+print("[SG] spawned")

@@ -72,11 +72,8 @@
   <PropertyGroup Condition="'$(Platform)'=='x64'">
     <TargetName>Module</TargetName>
     <TargetExt>.dll</TargetExt>
-    <!-- Build into the workspace by default; override OutDir on the command
-         line or set RobloxVersionDir to also deploy next to the client. -->
-    <OutDir>$(ProjectDir)build\bin\$(Platform)\$(Configuration)\</OutDir>
+    <OutDir>$(ProjectDir)$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)build\obj\$(Platform)\$(Configuration)\</IntDir>
-    <RobloxVersionDir Condition="'$(RobloxVersionDir)'==''">$(LocalAppData)\Roblox\Versions\version-4ea8e85481e34f46\</RobloxVersionDir>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <VcpkgUseStatic>true</VcpkgUseStatic>
@@ -98,7 +95,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <AdditionalDependencies>cpr.lib;libcurl_release.lib;Ws2_32.lib;Wldap32.lib;Normaliz.lib;Crypt32.lib;d3d11.lib;dxgi.lib;zstd_static.lib;Winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)Dependencies\curl\lib;$(ProjectDir)Dependencies\cpr\lib;$(ProjectDir)Dependencies\cryptopp\lib;$(ProjectDir)Dependencies\Zstd\lib;$(ProjectDir)Dependencies\mbedtls\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -119,7 +116,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <AdditionalDependencies>cpr.lib;libcurl_release.lib;Ws2_32.lib;Wldap32.lib;Normaliz.lib;Crypt32.lib;d3d11.lib;dxgi.lib;zstd_static.lib;Winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)Dependencies\curl\lib;$(ProjectDir)Dependencies\cpr\lib;$(ProjectDir)Dependencies\cryptopp\lib;$(ProjectDir)Dependencies\Zstd\lib;$(ProjectDir)Dependencies\mbedtls\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -135,7 +132,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
@@ -149,7 +146,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
@@ -175,6 +172,7 @@
     <ClCompile Include="RBX\environment\libs\filedialog\filedialog.cpp" />
     <ClCompile Include="RBX\environment\libs\filesystem\filesystem.cpp" />
     <ClCompile Include="RBX\environment\libs\http\http.cpp" />
+    <ClCompile Include="RBX\environment\libs\http\gzip.cpp" />
     <ClCompile Include="RBX\environment\libs\input\input.cpp" />
     <ClCompile Include="RBX\environment\libs\instance\instance.cpp" />
     <ClCompile Include="RBX\environment\libs\metatable\metatable.cpp" />
@@ -344,26 +342,5 @@
   <Target Name="DeployLocalDecompiler" AfterTargets="Build" Condition="'$(Platform)'=='x64'">
     <Copy SourceFiles="$(ProjectDir)Dependencies\Tovek\decompiler.exe" DestinationFiles="$(OutDir)decompiler.exe" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(ProjectDir)Dependencies\Tovek\LICENSE.txt" DestinationFiles="$(OutDir)Tovek-LICENSE.txt" SkipUnchangedFiles="true" />
-  </Target>
-  <!-- Optional: drop the freshly built module next to the Roblox client.
-       Skipped when that version folder is not installed on this machine.
-       decompiler.exe has to travel with Module.dll: the module looks for it in
-       its own folder, otherwise decompile() reports "decompiler.exe not found
-       next to Module.dll". -->
-  <Target Name="DeployToRoblox" AfterTargets="Build" Condition="'$(Platform)'=='x64' AND Exists('$(RobloxVersionDir)')">
-    <Copy SourceFiles="$(OutDir)Module.dll" DestinationFiles="$(RobloxVersionDir)Module.dll" SkipUnchangedFiles="false" />
-    <Copy SourceFiles="$(ProjectDir)Dependencies\Tovek\decompiler.exe" DestinationFiles="$(RobloxVersionDir)decompiler.exe" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(ProjectDir)Dependencies\Tovek\LICENSE.txt" DestinationFiles="$(RobloxVersionDir)Tovek-LICENSE.txt" SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="Deployed Module.dll (+decompiler.exe) to $(RobloxVersionDir)" />
-  </Target>
-  <!-- Bloxstrap keeps its own copy of the client under
-       %LOCALAPPDATA%\Bloxstrap\Versions\<version>. Point RobloxVersionDir at
-       that folder to deploy there instead. -->
-  <Target Name="DeployToBloxstrap" AfterTargets="Build"
-           Condition="'$(Platform)'=='x64' AND '$(BloxstrapVersionDir)'!='' AND Exists('$(BloxstrapVersionDir)')">
-    <Copy SourceFiles="$(OutDir)Module.dll" DestinationFiles="$(BloxstrapVersionDir)module.dll" SkipUnchangedFiles="false" />
-    <Copy SourceFiles="$(ProjectDir)Dependencies\Tovek\decompiler.exe" DestinationFiles="$(BloxstrapVersionDir)decompiler.exe" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(ProjectDir)Dependencies\Tovek\LICENSE.txt" DestinationFiles="$(BloxstrapVersionDir)Tovek-LICENSE.txt" SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="Deployed module.dll (+decompiler.exe) to $(BloxstrapVersionDir)" />
   </Target>
 </Project>

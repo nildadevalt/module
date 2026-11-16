@@ -27,5 +27,11 @@ namespace Filesystem
     int dofile(lua_State* L);
     int getcustomasset(lua_State* L);
 
+    // async variants - disk work is moved to the yield worker thread
+    int readfileasync(lua_State* L);
+    int writefileasync(lua_State* L);
+    int appendfileasync(lua_State* L);
+    int loadfileasync(lua_State* L);
+
     void register_lib(lua_State* L);
 }

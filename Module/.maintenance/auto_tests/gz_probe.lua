@@ -1,0 +1,6 @@
+print("[GZ] start")
+local r = request({ Url = "https://httpbin.org/gzip", Method = "GET" })
+print("[GZ] status=" .. tostring(r.StatusCode) .. " len=" .. tostring(r.Body and #r.Body))
+local ok, data = pcall(function() return game:GetService("HttpService"):JSONDecode(r.Body) end)
+print("[GZ] json ok=" .. tostring(ok) .. " gzipped=" .. tostring(ok and data.gzipped))
+print("SUNCIO-DONE")

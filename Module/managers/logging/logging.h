@@ -21,14 +21,12 @@ public:
         entries.push_back({ msg, color, true });
         if (entries.size() > 5000)
             entries.erase(entries.begin(), entries.begin() + 1000);
-        ++generation;
     }
 
     void clear_log_info()
     {
         std::lock_guard<std::mutex> lk(mtx);
         entries.clear();
-        ++generation;
     }
 
     std::vector<LogEntry> get_log_info()
@@ -37,16 +35,9 @@ public:
         return entries;
     }
 
-    uint64_t get_generation() const
-    {
-        std::lock_guard<std::mutex> lk(mtx);
-        return generation;
-    }
-
 private:
     std::vector<LogEntry> entries;
-    mutable std::mutex mtx;
-    uint64_t generation = 0;
+    std::mutex mtx;
 };
 
 inline LogManager log_mgr;

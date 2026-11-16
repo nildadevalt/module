@@ -134,11 +134,9 @@ namespace Raknet
     inline std::mutex logMutex;
     inline std::vector<PacketLogEntry> packetLog;
     inline uint64_t packetSeq = 0;
-    // Paused by default: packet logging copies/locks on the client's network
-    // thread for every packet, which can freeze/stutter under load (e.g. UNC
-    // tests). Enable explicitly with raknet.capturepaused(false) when needed.
-    inline bool capturePaused = true;
+    inline bool capturePaused = false;
     inline bool desyncing = false;
+    inline bool desyncPing = false;
     inline bool hooked = false;
 
     static constexpr size_t MaxPacketLogEntries = 200;
@@ -153,14 +151,18 @@ namespace Raknet
     inline receive_fn_t original_raknet_receive = nullptr;
 
     // ── Vtable tracking ────────────────────────────────────────
-    // original_vftable_saved: the vtable the RakPeer pointed at before the hook
-    // current_vftable: the private copy the RakPeer points at now
-    // RakPeer_instance: the RakPeer object itself (not the scheduler job)
-    // RakPeer_job: the scheduler job the peer was found through
     inline void** original_vftable_saved = nullptr;
     inline void** current_vftable = nullptr;
     inline uintptr_t RakPeer_instance = 0;
-    inline uintptr_t RakPeer_job = 0;
+
+    // ── RbxTransport::Connection vtable tracking ───────────────
+    using rbx_send_fn_t = uint64_t(__fastcall*)(void* _this, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6);
+    inline rbx_send_fn_t original_rbx_sendraw = nullptr;
+    inline rbx_send_fn_t original_rbx_send = nullptr;
+    inline void** rbxconn_orig_vftable = nullptr;
+    inline void** rbxconn_new_vftable = nullptr;
+    inline uintptr_t RbxConn_instance = 0;
+    inline bool rbxConnHooked = false;
 
     // ── BitStream userdata ─────────────────────────────────────
     struct LuaBitStream {
@@ -171,7 +173,7 @@ namespace Raknet
     // ── Declarations ───────────────────────────────────────────
     const char* ItemTypeName(uint8_t id);
     std::string DecodeReplicationItem(const uint8_t* b, uint32_t n);
-    void RecordPacket(uint8_t id, uint8_t itemId, uint32_t bitsUsed, PacketPriority priority, PacketReliability reliability, char channel, uint32_t size, const uint8_t* bytes, uint32_t storedBytes, bool broadcast, uint32_t forceReceipt);
+    void RecordPacket(uint8_t id, uint8_t itemId, uint32_t bitsUsed, PacketPriority priority, PacketReliability reliability, char channel, uint32_t size, const uint8_t* bytes, bool broadcast, uint32_t forceReceipt);
     std::vector<PacketLogEntry> SnapshotLog();
     void ClearLog();
     void MarkLastPacketBlocked();
@@ -181,6 +183,7 @@ namespace Raknet
     int64_t __fastcall rakpeerSendSharedHook(int64_t* _this, int64_t* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel, int64_t* systemIdentifier, bool Broadcast, uint32_t ForceReceiptNumber, uint64_t unk);
     void* __fastcall rakpeerReceiveHook(int64_t* _this);
     void InitializeHook(uintptr_t Peer);
+    void DiagScan(lua_State* L, uintptr_t recvJob);
 
     int raknet_desync(lua_State* L);
     int raknet_add_send_hook(lua_State* L);

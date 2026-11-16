@@ -44,6 +44,19 @@ namespace Reflection
     bool resolve_property(lua_State* L, std::uintptr_t& out_instance, std::uintptr_t& out_prop);
     bool read_scriptable_flag(uintptr_t prop) noexcept;
     void write_scriptable_flag(uintptr_t prop, bool state) noexcept;
+
+    struct ScopedScriptable
+    {
+        uintptr_t Descriptor = 0;
+        uint32_t OriginalFlags = 0;
+        bool Applied = false;
+
+        ScopedScriptable(lua_State* L, int udIndex, const char* propName) noexcept;
+        ~ScopedScriptable() noexcept;
+
+        ScopedScriptable(const ScopedScriptable&) = delete;
+        ScopedScriptable& operator=(const ScopedScriptable&) = delete;
+    };
     int get_property_type(uintptr_t prop);
     uintptr_t get_property_getter(uintptr_t prop);
     uintptr_t get_property_setter(uintptr_t prop);

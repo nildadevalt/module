@@ -45,6 +45,7 @@ namespace DrawingImmediate
     // ── Public ────────────────────────────────────────────────
     bool IsInPaint();
     void Render(lua_State* L);
+    void RenderOverlay();
     void ClearAll();
 
     // ── PaintHandle metatable methods ────────────────────────

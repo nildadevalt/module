@@ -27,6 +27,7 @@ namespace Closures
        Environment->make_global(L, "hookfunc", Closures::hookfunction, funcnameinc++);
        Environment->make_global(L, "replaceclosure", Closures::hookfunction, funcnameinc++);
       Environment->make_global(L, "newcclosure", Closures::newcclosure, funcnameinc++);
+        Environment->make_global(L, "newlclosure", Closures::newlclosure, funcnameinc++);
         Environment->make_global(L, "isnewcclosure", Closures::isnewcclosure, funcnameinc++);
       Environment->make_global(L, "restorefunction", Closures::restorefunction, funcnameinc++);
         Environment->make_global(L, "restorefunc", Closures::restorefunction, funcnameinc++);
@@ -41,9 +42,16 @@ namespace Closures
      Environment->make_global(L, "gettenv", Closures::gettenv, funcnameinc++);
         Environment->make_global(L, "compareclosures", Closures::compareclosures, funcnameinc++);
         Environment->make_global(L, "comparefunctions", Closures::compareclosures, funcnameinc++);
+        Environment->make_global(L, "comparefunction", Closures::compareclosures, funcnameinc++);
       Environment->make_global(L, "hooksignal", Closures::hooksignal, funcnameinc++);
         Environment->make_global(L, "restoresignal", Closures::restoresignal, funcnameinc++);
        Environment->make_global(L, "setstackhidden", Closures::setstackhidden, funcnameinc++);
+        Environment->make_global(L, "sethiddenstack", Closures::setstackhidden, funcnameinc++);
+        Environment->make_global(L, "set_stack_hidden", Closures::setstackhidden, funcnameinc++);
+        Environment->make_global(L, "ishiddenstack", Closures::ishiddenstack, funcnameinc++);
+        Environment->make_global(L, "isstackhidden", Closures::ishiddenstack, funcnameinc++);
+        Environment->make_global(L, "is_stack_hidden", Closures::ishiddenstack, funcnameinc++);
+        Environment->make_global(L, "setname", Closures::setname, funcnameinc++);
 
         // detection fix: Function Environment[3] Metamethods - DIRECT reads
         // getfenv of the frame at debug.info(2, "f") in the xpcall message

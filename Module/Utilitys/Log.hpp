@@ -3,11 +3,9 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cstring>
-#include <atomic>
 #include <windows.h>
 
 #include <managers/logging/logging.h>
-#include <Utilitys/ModuleLocation.hpp>
 
 // Unified logging
 //
@@ -20,18 +18,16 @@
 #ifdef _DEBUG
     #define LOG_ENABLED 1
 #else
-    #define LOG_ENABLED 1  // keep on in release too for now, flip to 0 when stable
+    #define LOG_ENABLED 0
 #endif
 
 namespace LogFile
 {
-    inline std::atomic<int> Level{ 1 }; // 0=error, 1=info, 2=trace
-
     struct State
     {
         CRITICAL_SECTION lock;
         HANDLE handle;
-        wchar_t path[MAX_PATH];
+        char path[MAX_PATH];
     };
 
     inline State MakeState()
@@ -42,72 +38,27 @@ namespace LogFile
         state.handle = INVALID_HANDLE_VALUE;
         state.path[0] = '\0';
 
-        // The module can be hidden from the loader lists, in which case
-        // GetModuleHandleEx(FROM_ADDRESS) fails and no log file is written.
-        // The path captured at load time is used first.
-        std::wstring directory = ModuleLocation::Resolve();
+        char module_path[MAX_PATH]{};
+        HMODULE module = nullptr;
 
-        if (directory.empty())
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(&MakeState), &module) && module)
         {
-            HMODULE module = nullptr;
-
-            if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                reinterpret_cast<LPCSTR>(&MakeState), &module) && module)
-            {
-                wchar_t module_path[MAX_PATH]{};
-                const DWORD length = GetModuleFileNameW(module, module_path, MAX_PATH);
-
-                if (length && length < MAX_PATH) {
-                    std::wstring full(module_path, length);
-                    const size_t slash = full.find_last_of(L"\\/");
-
-                    if (slash != std::wstring::npos)
-                        directory = full.substr(0, slash + 1);
-                }
-            }
+            GetModuleFileNameA(module, module_path, MAX_PATH);
         }
 
-        if (!directory.empty())
+        char* slash = strrchr(module_path, '\\');
+        if (slash)
         {
-            const std::wstring full = directory + L"Logs.log";
+            slash[1] = '\0';
+            snprintf(state.path, MAX_PATH, "%sLogs.log", module_path);
 
-            if (full.size() < MAX_PATH) {
-                wmemcpy(state.path, full.c_str(), full.size() + 1);
+            state.handle = CreateFileA(state.path, FILE_APPEND_DATA,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-                state.handle = CreateFileW(state.path, FILE_APPEND_DATA,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-
-                if (state.handle != INVALID_HANDLE_VALUE)
-                    SetFilePointer(state.handle, 0, nullptr, FILE_END);
-            }
-        }
-
-        if (state.handle == INVALID_HANDLE_VALUE)
-        {
-            // The module folder is unknown or not writable (the emulator hides
-            // the module from the loader lists). Falling back to %TEMP% keeps
-            // the diagnostics available instead of losing them silently.
-            wchar_t temp[MAX_PATH]{};
-
-            if (GetTempPathW(MAX_PATH, temp)) {
-                std::wstring fallback(temp);
-
-                if (!fallback.empty() && fallback.back() == L'\\')
-                    fallback.pop_back();
-                fallback += L"\\ModuleLogs.log";
-
-                if (fallback.size() < MAX_PATH) {
-                    wmemcpy(state.path, fallback.c_str(), fallback.size() + 1);
-
-                    state.handle = CreateFileW(state.path, FILE_APPEND_DATA,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-
-                    if (state.handle != INVALID_HANDLE_VALUE)
-                        SetFilePointer(state.handle, 0, nullptr, FILE_END);
-                }
-            }
+            if (state.handle != INVALID_HANDLE_VALUE)
+                SetFilePointer(state.handle, 0, nullptr, FILE_END);
         }
 
         return state;
@@ -124,7 +75,7 @@ namespace LogFile
         Get();
     }
 
-    inline const wchar_t* Path()
+    inline const char* Path()
     {
         return Get().path;
     }
@@ -142,6 +93,7 @@ namespace LogFile
 
         DWORD written = 0;
         WriteFile(state.handle, text, static_cast<DWORD>(length), &written, nullptr);
+        FlushFileBuffers(state.handle);
 
         LeaveCriticalSection(&state.lock);
     }
@@ -195,4 +147,3 @@ inline void Log_Internal(const char* source, const char* fmt, ...)
 
 // formatted log: OutputDebugString + ImGui + Logs.log
 #define LOGF(source, ...) do { Log_Internal(source, __VA_ARGS__); } while(0)
-#define LOGT(source, ...) do { if (::LogFile::Level.load(std::memory_order_relaxed) >= 2) Log_Internal(source, __VA_ARGS__); } while(0)

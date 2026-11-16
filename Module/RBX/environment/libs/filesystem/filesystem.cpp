@@ -11,6 +11,7 @@
 #include <Utilitys/Globals.hpp>
 #include <RBX/execution/execution.hpp>
 #include <RBX/task_scheduler/task_scheduler.hpp>
+#include <RBX/environment/yielding/yielding.hpp>
 
 
 namespace Filesystem
@@ -310,6 +311,156 @@ namespace Filesystem
         return 0;
     }
 
+    // ------------------------------------------------------------------
+    // Async file I/O
+    //
+    // Disk work runs on the yield worker thread and only the result is
+    // pushed back on the game thread, so touching a slow or large file
+    // never stalls the scheduler step. Falls back to the blocking path
+    // when the calling thread cannot yield.
+    // ------------------------------------------------------------------
+
+    int readfileasync(lua_State* L)
+    {
+        const char* err = nullptr;
+        wchar_t path[MAX_PATH_W] = {};
+        if (!ResolvePath(L, 1, path, MAX_PATH_W, &err)) return Err(L, err);
+
+        if (lua_isyieldable(L))
+        {
+            std::wstring wpath(path);
+            return Yielding::YieldExecution(L, [wpath]() -> std::function<int(lua_State*)>
+            {
+                char* data = nullptr; size_t len = 0;
+                bool ok = FileIO(wpath.c_str(), &data, &len, nullptr, 0, false);
+                std::string body;
+                if (ok)
+                {
+                    body.assign(data, len);
+                    HeapFree(GetProcessHeap(), 0, data);
+                }
+                return [ok, body = std::move(body)](lua_State* L) -> int
+                {
+                    if (!ok)
+                        return Err(L, ("Failed to open file"));
+                    lua_pushlstring(L, body.data(), body.size());
+                    return 1;
+                };
+            });
+        }
+
+        return readfile(L);
+    }
+
+    int writefileasync(lua_State* L)
+    {
+        luaL_checktype(L, 2, LUA_TSTRING);
+        const char* err = nullptr;
+        wchar_t path[MAX_PATH_W] = {};
+        if (!ResolvePath(L, 1, path, MAX_PATH_W, &err)) return Err(L, err);
+        if (IsBlocked(path)) return Err(L, ("Unsafe function"));
+
+        size_t len = 0; const char* data = luaL_checklstring(L, 2, &len);
+        std::wstring wpath(path);
+        std::string body(data, len);
+
+        if (lua_isyieldable(L))
+        {
+            return Yielding::YieldExecution(L, [wpath, body = std::move(body)]() -> std::function<int(lua_State*)>
+            {
+                bool ok = FileIO(wpath.c_str(), nullptr, nullptr, body.data(), body.size(), false);
+                return [ok](lua_State* L) -> int
+                {
+                    if (!ok)
+                        return Err(L, ("Failed to write file"));
+                    return 0;
+                };
+            });
+        }
+
+        if (!FileIO(path, nullptr, nullptr, body.data(), body.size(), false)) return Err(L, ("Failed to write file"));
+        return 0;
+    }
+
+    int appendfileasync(lua_State* L)
+    {
+        luaL_checktype(L, 2, LUA_TSTRING);
+        const char* err = nullptr;
+        wchar_t path[MAX_PATH_W] = {};
+        if (!ResolvePath(L, 1, path, MAX_PATH_W, &err)) return Err(L, err);
+        if (IsBlocked(path)) return Err(L, ("Unsafe function"));
+
+        size_t len = 0; const char* data = luaL_checklstring(L, 2, &len);
+        std::wstring wpath(path);
+        std::string body(data, len);
+
+        if (lua_isyieldable(L))
+        {
+            return Yielding::YieldExecution(L, [wpath, body = std::move(body)]() -> std::function<int(lua_State*)>
+            {
+                bool ok = FileIO(wpath.c_str(), nullptr, nullptr, body.data(), body.size(), true);
+                return [ok](lua_State* L) -> int
+                {
+                    if (!ok)
+                        return Err(L, ("Failed to append file"));
+                    return 0;
+                };
+            });
+        }
+
+        if (!FileIO(path, nullptr, nullptr, body.data(), body.size(), true)) return Err(L, ("Failed to append file"));
+        return 0;
+    }
+
+    int loadfileasync(lua_State* L)
+    {
+        const char* err = nullptr;
+        wchar_t path[MAX_PATH_W] = {};
+        if (!ResolvePath(L, 1, path, MAX_PATH_W, &err)) return Err(L, err);
+
+        char chunk[512];
+        strcpy_s(chunk, ("loadfileasync"));
+        const wchar_t* fname = wcsrchr(path, L'\\');
+        WideCharToMultiByte(CP_UTF8, 0, fname ? fname + 1 : path, -1, chunk, sizeof(chunk), nullptr, nullptr);
+
+        if (lua_isyieldable(L))
+        {
+            std::wstring wpath(path);
+            std::string chunkName(chunk);
+            return Yielding::YieldExecution(L, [wpath, chunkName]() -> std::function<int(lua_State*)>
+            {
+                char* data = nullptr; size_t len = 0;
+                bool ok = FileIO(wpath.c_str(), &data, &len, nullptr, 0, false);
+                std::string bytecode;
+                if (ok)
+                {
+                    std::string src(data, len);
+                    HeapFree(GetProcessHeap(), 0, data);
+                    bytecode = Execution::CompileScript(std::move(src));
+                }
+                return [ok, bytecode = std::move(bytecode), chunkName = std::move(chunkName)](lua_State* L) -> int
+                {
+                    if (!ok)
+                        return Err(L, ("Failed to open file"));
+                    if (luau_load(L, chunkName.c_str(), bytecode.data(), bytecode.size(), 0) != LUA_OK)
+                    {
+                        const char* e = lua_tostring(L, -1);
+                        std::string msg = e ? e : std::string(("loadfileasync failed"));
+                        lua_pop(L, 1);
+                        lua_pushnil(L);
+                        lua_pushstring(L, msg.c_str());
+                        return 2;
+                    }
+                    Closure* cl = clvalue(luaA_toobject(L, -1));
+                    task_scheduler::SetProtoCapabilities(cl->l.p, &MaxCapabilities);
+                    return 1;
+                };
+            });
+        }
+
+        return loadfile(L);
+    }
+
     int listfiles(lua_State* L)
     {
         const char* err = nullptr;
@@ -549,10 +700,16 @@ namespace Filesystem
 
     int dofile(lua_State* L)
     {
-        if (loadfile(L) != 1) return 2;
-        int base = lua_gettop(L); // function on top
+        // forward every value the chunk returns; passing 0 here dropped them
+        // and made dofile() report nil for any file that returned something.
+        if (loadfile(L) != 1)
+            return 2;
+
+        // loadfile leaves exactly the chunk on the stack; run it and return
+        // only the call's results, not the stack below the chunk.
+        const int base = lua_gettop(L) - 1;
         lua_call(L, 0, LUA_MULTRET);
-        return lua_gettop(L) - base + 1;
+        return lua_gettop(L) - base;
     }
 
     int getcustomasset(lua_State* L)
@@ -601,5 +758,10 @@ namespace Filesystem
         Environment->make_global(L, ("loadfile"), Filesystem::loadfile, Filesystem::funcnameinc++);
         Environment->make_global(L, ("dofile"), Filesystem::dofile, Filesystem::funcnameinc++);
         Environment->make_global(L, ("getcustomasset"), Filesystem::getcustomasset, Filesystem::funcnameinc++);
+
+        Environment->make_global(L, ("readfileasync"), Filesystem::readfileasync, Filesystem::funcnameinc++);
+        Environment->make_global(L, ("writefileasync"), Filesystem::writefileasync, Filesystem::funcnameinc++);
+        Environment->make_global(L, ("appendfileasync"), Filesystem::appendfileasync, Filesystem::funcnameinc++);
+        Environment->make_global(L, ("loadfileasync"), Filesystem::loadfileasync, Filesystem::funcnameinc++);
     }
 }

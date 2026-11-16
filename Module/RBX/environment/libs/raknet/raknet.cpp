@@ -135,7 +135,7 @@ namespace Raknet
         return ItemTypeName(b[1]);
     }
 
-    void RecordPacket(uint8_t id, uint8_t itemId, uint32_t bitsUsed, PacketPriority priority, PacketReliability reliability, char channel, uint32_t size, const uint8_t* bytes, uint32_t storedBytes, bool broadcast, uint32_t forceReceipt)
+    void RecordPacket(uint8_t id, uint8_t itemId, uint32_t bitsUsed, PacketPriority priority, PacketReliability reliability, char channel, uint32_t size, const uint8_t* bytes, bool broadcast, uint32_t forceReceipt)
     {
         PacketLogEntry e;
         e.seq = ++packetSeq;
@@ -150,11 +150,8 @@ namespace Raknet
         e.forceReceipt = forceReceipt;
         e.blocked = false;
         e.truncated = size > MaxStoredPacketBytes;
-        if (bytes && storedBytes) {
-            const uint32_t keep = (std::min)(storedBytes, (uint32_t)MaxStoredPacketBytes);
-            e.bytes.assign(bytes, bytes + keep);
-        }
-        e.summary = (id == 0x83 && size >= 2 && e.bytes.size() >= 2) ? DecodeReplicationItem(e.bytes.data(), (uint32_t)e.bytes.size()) : ("");
+        e.bytes.assign(bytes, bytes + (std::min)((size_t)size, MaxStoredPacketBytes));
+        e.summary = (id == 0x83 && size >= 2) ? DecodeReplicationItem(bytes, size) : ("");
 
         std::lock_guard<std::mutex> lock(logMutex);
         packetLog.push_back(std::move(e));
@@ -213,19 +210,37 @@ namespace Raknet
             lua_setfield(L, -2, ("ItemId"));
         }
 
-        // AsBuffer
-        void* buf = lua_newbuffer(L, size);
-        memcpy(buf, bytes, size);
-        lua_setfield(L, -2, ("AsBuffer"));
-
-        // AsArray
-        lua_newtable(L);
-        for (uint32_t i = 0; i < size; i++) {
-            lua_pushinteger(L, (int)bytes[i]);
-            lua_rawseti(L, -2, i + 1);
+        // AsBuffer via Roblox's buffer.create + buffer.writestring (avoids Luau2/Roblox Buffer struct mismatch)
+        lua_getglobal(L, ("buffer"));
+        if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, ("create"));
+            if (lua_isfunction(L, -1)) {
+                lua_pushinteger(L, (int)size);
+                if (lua_pcall(L, 1, 1, 0) == LUA_OK) {
+                    if (size > 0) {
+                        lua_getfield(L, -2, ("writestring"));
+                        if (lua_isfunction(L, -1)) {
+                            lua_pushvalue(L, -2);
+                            lua_pushlstring(L, reinterpret_cast<const char*>(bytes), size);
+                            lua_pushinteger(L, 0);
+                            if (lua_pcall(L, 3, 0, 0) != LUA_OK)
+                                lua_pop(L, 1);
+                        } else {
+                            lua_pop(L, 1);
+                        }
+                    }
+                    lua_remove(L, -2); // remove buffer table
+                    lua_setfield(L, -2, ("AsBuffer"));
+                } else {
+                    lua_pop(L, 2);
+                }
+            } else {
+                lua_pop(L, 2);
+            }
+        } else {
+            lua_pop(L, 1);
         }
-        lua_setfield(L, -2, ("AsArray"));
-
+        // AsArray (temp skip)
         // AsString
         lua_pushlstring(L, reinterpret_cast<const char*>(bytes), size);
         lua_setfield(L, -2, ("AsString"));
@@ -258,24 +273,33 @@ namespace Raknet
         sprintf_s(dbg, ("[Raknet] ProcessCallbacks: draining %zu items\n"), batch.size());
         OutputDebugStringA(dbg);
 
+        int origTop = lua_gettop(L);
         for (auto& qc : batch) {
-            lua_getref(L, qc.ref);
-            if (lua_type(L, -1) != LUA_TFUNCTION) {
-                lua_pop(L, 1);
+            if (!lua_checkstack(L, 4)) break;
+            lua_State* cbThread = lua_newthread(L);
+            if (!cbThread || !lua_checkstack(cbThread, 8)) {
+                lua_settop(L, origTop);
+                continue;
+            }
+            lua_getref(cbThread, qc.ref);
+            if (lua_type(cbThread, -1) != LUA_TFUNCTION) {
+                lua_pop(cbThread, 1);
+                lua_settop(L, origTop);
                 continue;
             }
 
-            pushPacketUserdata(L, qc.data.data(), qc.size, qc.priority, qc.reliability, qc.orderingChannel);
+            pushPacketUserdata(cbThread, qc.data.data(), qc.size, qc.priority, qc.reliability, qc.orderingChannel);
 
-            if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-                const char* err = lua_tostring(L, -1);
+            if (lua_pcall(cbThread, 1, 0, 0) != LUA_OK) {
+                const char* err = lua_tostring(cbThread, -1);
                 if (err) {
                     OutputDebugStringA(("[Raknet] hook error: "));
                     OutputDebugStringA(err);
                     OutputDebugStringA(("\n"));
                 }
-                lua_pop(L, 1);
+                lua_pop(cbThread, 1);
             }
+            lua_settop(L, origTop);
         }
     }
 
@@ -283,166 +307,117 @@ namespace Raknet
     static std::atomic<bool> hasSendHooks{ false };
     static std::atomic<bool> hasReceiveHooks{ false };
 
-    // The client hands the packet over as a BitStream; the layout below is the
-    // one the client itself uses (data pointer, bit count, byte count).
-    static constexpr uint32_t kMaxPacketSize = 0x20000;
-
-    // POD only helpers: these run inside the client's network thread, so every
-    // access to client memory is guarded by SEH. They must not own C++
-    // objects, otherwise __try cannot be used in them.
-    struct BitStreamView
+    static bool CheckMemory(uintptr_t address)
     {
-        uint8_t* bytes;
-        uint32_t size;
-        uint32_t bits;
-    };
-
-    static bool SafeReadBitStream(int64_t* bitStream, BitStreamView& out)
-    {
-        out.bytes = nullptr;
-        out.size = 0;
-        out.bits = 0;
-
-        if (!bitStream)
+        if (address < 0x10000 || address > 0x7FFFFFFFFFFF)
             return false;
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(reinterpret_cast<LPCVOID>(address), &mbi, sizeof(mbi)) == 0)
+            return false;
+        if (mbi.State != MEM_COMMIT)
+            return false;
+        if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))
+            return false;
+        return true;
+    }
 
+    static bool TryExtractBitStream(int64_t* bitStream, uint8_t*& outBytes, uint32_t& outSize, uint32_t& outBits)
+    {
+        outBytes = nullptr;
+        outSize = 0;
+        outBits = 0;
+        if (!bitStream || !CheckMemory(reinterpret_cast<uintptr_t>(bitStream)))
+            return false;
         __try
         {
-            const uintptr_t realBitStream = static_cast<uintptr_t>(bitStream[0]);
-
-            if (!realBitStream)
+            uintptr_t realBitStream = bitStream[0];
+            if (!realBitStream || !CheckMemory(realBitStream + 0x34))
                 return false;
-
-            uint8_t* bytes = *reinterpret_cast<uint8_t**>(realBitStream + 0x10);
-            const uint32_t bits = *reinterpret_cast<uint32_t*>(realBitStream + 0x18);
-            const uint32_t size = *reinterpret_cast<uint32_t*>(realBitStream + 0x30);
-
-            if (!bytes || size == 0 || size > kMaxPacketSize)
+            outBytes = *reinterpret_cast<uint8_t**>(realBitStream + 0x10);
+            outSize = *reinterpret_cast<uint32_t*>(realBitStream + 0x30);
+            outBits = *reinterpret_cast<uint32_t*>(realBitStream + 0x18);
+            if (!outBytes || outSize == 0 || outSize > 0x100000 || !CheckMemory(reinterpret_cast<uintptr_t>(outBytes)))
                 return false;
-
-            out.bytes = bytes;
-            out.size = size;
-            out.bits = bits;
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            out.bytes = nullptr;
-            out.size = 0;
-            out.bits = 0;
+            outBytes = nullptr;
+            outSize = 0;
+            outBits = 0;
             return false;
         }
     }
 
-    static uint32_t SafeCopyBytes(const uint8_t* src, uint32_t size, uint8_t* dst, uint32_t cap)
+    static bool TryExtractReceivedPacket(void* packet, uint8_t*& outBytes, uint32_t& outSize)
     {
-        if (!src || !dst || !size || !cap)
-            return 0;
-
-        __try
-        {
-            const uint32_t n = size < cap ? size : cap;
-
-            memcpy(dst, src, n);
-            return n;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return 0;
-        }
-    }
-
-    static bool SafeWriteBytes(uint8_t* dst, const uint8_t* src, uint32_t size)
-    {
-        if (!dst || !src || !size)
+        outBytes = nullptr;
+        outSize = 0;
+        if (!packet || !CheckMemory(reinterpret_cast<uintptr_t>(packet) + 0x30))
             return false;
-
         __try
         {
-            memcpy(dst, src, size);
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
+            uintptr_t base = reinterpret_cast<uintptr_t>(packet);
+            // Primary layout: data* at +0x00, size at +0x08
+            uint8_t* p0 = *reinterpret_cast<uint8_t**>(base + 0x00);
+            uint32_t s0 = *reinterpret_cast<uint32_t*>(base + 0x08);
+            if (p0 && s0 > 0 && s0 <= 0x100000 && CheckMemory(reinterpret_cast<uintptr_t>(p0)))
+            {
+                outBytes = p0;
+                outSize = s0;
+                return true;
+            }
+            // Standard RakNet Packet layout: length at +0x20, data* at +0x28 (or +0x18 / +0x20)
+            uint32_t s1 = *reinterpret_cast<uint32_t*>(base + 0x20);
+            uint8_t* p1 = *reinterpret_cast<uint8_t**>(base + 0x28);
+            if (p1 && s1 > 0 && s1 <= 0x100000 && CheckMemory(reinterpret_cast<uintptr_t>(p1)))
+            {
+                outBytes = p1;
+                outSize = s1;
+                return true;
+            }
             return false;
         }
-    }
-
-    static void SafeWriteFill(uint8_t* dst, uint8_t value, uint32_t size)
-    {
-        if (!dst || !size)
-            return;
-
-        __try
-        {
-            memset(dst, value, size);
-        }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-        }
-    }
-
-    static bool SafeReadPacket(void* packet, uint8_t** outBytes, uint32_t* outSize)
-    {
-        *outBytes = nullptr;
-        *outSize = 0;
-
-        if (!packet)
-            return false;
-
-        __try
-        {
-            const auto addr = reinterpret_cast<uintptr_t>(packet);
-            uint8_t* bytes = *reinterpret_cast<uint8_t**>(addr);
-            const uint32_t size = *reinterpret_cast<uint32_t*>(addr + 0x08);
-
-            if (!bytes || size == 0 || size > kMaxPacketSize)
-                return false;
-
-            *outBytes = bytes;
-            *outSize = size;
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            *outBytes = nullptr;
-            *outSize = 0;
+            outBytes = nullptr;
+            outSize = 0;
             return false;
         }
     }
 
     int64_t __fastcall rakpeerSendSharedHook(int64_t* _this, int64_t* bitStream, PacketPriority priority, PacketReliability reliability, char orderingChannel, int64_t* systemIdentifier, bool Broadcast, uint32_t ForceReceiptNumber, uint64_t unk)
     {
-        static int fireCount = 0;
-        if (fireCount < 5) {
-            fireCount++;
-            OutputDebugStringA(("[Raknet] SEND HOOK FIRED\n"));
-        }
-
-        send_fn_t original = original_raknet_send;
-        if (!original) {
+        if (!original_raknet_send) {
             return 0;
         }
 
-        BitStreamView view{};
-        if (!SafeReadBitStream(bitStream, view))
-            return original(_this, bitStream, priority, reliability, orderingChannel, systemIdentifier, Broadcast, ForceReceiptNumber, unk);
+        uint8_t* packetBytes = nullptr;
+        uint32_t packetSize = 0;
+        uint32_t bitsUsed = 0;
+        if (!TryExtractBitStream(bitStream, packetBytes, packetSize, bitsUsed))
+            return original_raknet_send(_this, bitStream, priority, reliability, orderingChannel, systemIdentifier, Broadcast, ForceReceiptNumber, unk);
 
-        const uint8_t packetId = view.bytes[0];
-        const ItemType itemId = (view.size > 1) ? (ItemType)view.bytes[1] : ItemTypeEnd;
+        uint8_t packetId = packetBytes[0];
+        ItemType itemId = (packetSize > 1) ? (ItemType)packetBytes[1] : ItemTypeEnd;
 
-        if (!capturePaused) {
-            uint8_t head[512]{};
-            const uint32_t headLen = SafeCopyBytes(view.bytes, view.size, head, (uint32_t)sizeof(head));
+        if (!capturePaused)
+            RecordPacket(packetId, (uint8_t)itemId, bitsUsed, priority, reliability, orderingChannel, packetSize, packetBytes, Broadcast, ForceReceiptNumber);
 
-            RecordPacket(packetId, (uint8_t)itemId, view.bits, priority, reliability, orderingChannel, view.size, head, headLen, Broadcast, ForceReceiptNumber);
+        // Desync ping: drop outgoing RakNet ping/pong packets
+        if (desyncPing && (packetId == 0x00 || packetId == 0x01 || packetId == 0x03)) {
+            MarkLastPacketBlocked();
+            return 0;
         }
 
         // Desync: corrupt position packets
         if (desyncing && packetId == 0xA1) {
-            const uint8_t fill[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-            SafeWriteBytes(view.bytes, fill, sizeof(fill));
+            packetBytes[0] = 0xFF;
+            packetBytes[1] = 0xFF;
+            packetBytes[2] = 0xFF;
+            packetBytes[3] = 0xFF;
+            packetBytes[4] = 0xFF;
+            packetBytes[5] = 0xFF;
         }
 
         // Queue for callbacks
@@ -454,11 +429,8 @@ namespace Raknet
                 for (int ref : refs) {
                     QueuedCallback qc;
                     qc.ref = ref;
-                    qc.data.resize(view.size);
-                    const uint32_t copied = SafeCopyBytes(view.bytes, view.size, qc.data.data(), view.size);
-
-                    qc.data.resize(copied);
-                    qc.size = copied;
+                    qc.data.assign(packetBytes, packetBytes + packetSize);
+                    qc.size = packetSize;
                     qc.priority = priority;
                     qc.reliability = reliability;
                     qc.orderingChannel = orderingChannel;
@@ -468,7 +440,7 @@ namespace Raknet
             }
         }
 
-        return original(
+        return original_raknet_send(
             _this, bitStream, priority, reliability, orderingChannel,
             systemIdentifier, Broadcast, ForceReceiptNumber, unk
         );
@@ -476,30 +448,24 @@ namespace Raknet
 
     void* __fastcall rakpeerReceiveHook(int64_t* _this)
     {
-        receive_fn_t original = original_raknet_receive;
-        if (!original)
+        if (!original_raknet_receive)
             return nullptr;
 
-        void* packet = original(_this);
+        void* packet = original_raknet_receive(_this);
 
         if (!packet)
             return nullptr;
 
         uint8_t* packetBytes = nullptr;
         uint32_t packetSize = 0;
-
-        if (!SafeReadPacket(packet, &packetBytes, &packetSize))
+        if (!TryExtractReceivedPacket(packet, packetBytes, packetSize))
             return packet;
 
-        const uint8_t packetId = packetBytes[0];
-        const ItemType itemId = (packetSize > 1) ? (ItemType)packetBytes[1] : ItemTypeEnd;
+        uint8_t packetId = packetBytes[0];
+        ItemType itemId = (packetSize > 1) ? (ItemType)packetBytes[1] : ItemTypeEnd;
 
-        if (!capturePaused) {
-            uint8_t head[512]{};
-            const uint32_t headLen = SafeCopyBytes(packetBytes, packetSize, head, (uint32_t)sizeof(head));
-
-            RecordPacket(packetId, (uint8_t)itemId, 0, MEDIUM_PRIORITY, RELIABLE_ORDERED, 0, packetSize, head, headLen, false, 0);
-        }
+        if (!capturePaused)
+            RecordPacket(packetId, (uint8_t)itemId, 0, MEDIUM_PRIORITY, RELIABLE_ORDERED, 0, packetSize, packetBytes, false, 0);
 
         // Queue for receive callbacks (filter by per-hook packetId)
         if (hasReceiveHooks.load(std::memory_order_relaxed)) {
@@ -513,11 +479,8 @@ namespace Raknet
 
                     QueuedCallback qc;
                     qc.ref = cb.ref;
-                    qc.data.resize(packetSize);
-                    const uint32_t copied = SafeCopyBytes(packetBytes, packetSize, qc.data.data(), packetSize);
-
-                    qc.data.resize(copied);
-                    qc.size = copied;
+                    qc.data.assign(packetBytes, packetBytes + packetSize);
+                    qc.size = packetSize;
                     qc.priority = MEDIUM_PRIORITY;
                     qc.reliability = RELIABLE_ORDERED;
                     qc.orderingChannel = 0;
@@ -530,126 +493,326 @@ namespace Raknet
         return packet;
     }
 
-    static bool IsReadable(const void* Address, std::size_t Size)
-    {
-        if (!Address || Size == 0)
-            return false;
-
-        MEMORY_BASIC_INFORMATION mbi{};
-
-        if (VirtualQuery(Address, &mbi, sizeof(mbi)) == 0)
-            return false;
-        if (mbi.State != MEM_COMMIT)
-            return false;
-        if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))
-            return false;
-
-        const auto start = reinterpret_cast<std::uintptr_t>(Address);
-        const auto regionEnd = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-
-        return start + Size <= regionEnd;
-    }
-
     void InitializeHook(uintptr_t Peer)
     {
-        if (hooked || !Peer)
+        if (hooked || !Peer || !CheckMemory(Peer + 0x300))
             return;
 
-        char dbg[160];
-        sprintf_s(dbg, "[Raknet] InitializeHook Peer=0x%llX", (unsigned long long)Peer);
-        OutputDebugStringA(dbg);
+        const uintptr_t expectedVtable = ClientOffsets::RakNet::PeerVTable;
+        uintptr_t RakPeer = *reinterpret_cast<uintptr_t*>(Peer + Offsets::Raknet::RakPeer);
+        uintptr_t matchedOff = Offsets::Raknet::RakPeer;
 
-        uintptr_t RakPeer = 0;
-        __try
-        {
-            RakPeer = *reinterpret_cast<uintptr_t*>(Peer + Offsets::Raknet::RakPeer);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            RakPeer = 0;
-        }
-        if (!RakPeer) {
-            OutputDebugStringA("[Raknet] InitializeHook: RakPeer is null");
-            return;
-        }
-        if (!IsReadable(reinterpret_cast<void*>(RakPeer), sizeof(void*))) {
-            OutputDebugStringA("[Raknet] InitializeHook: RakPeer is not readable");
-            return;
-        }
+        auto hasExpectedVtable = [&](uintptr_t candidate) -> bool {
+            if (!candidate || !CheckMemory(candidate)) return false;
+            uintptr_t vt = *reinterpret_cast<uintptr_t*>(candidate);
+            return vt == expectedVtable;
+        };
 
-        sprintf_s(dbg, "[Raknet] RakPeer=0x%llX", (unsigned long long)RakPeer);
-        OutputDebugStringA(dbg);
-
-        void** original_vftable = nullptr;
-        __try
-        {
-            original_vftable = *reinterpret_cast<void***>(RakPeer);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            original_vftable = nullptr;
-        }
-        if (!original_vftable) {
-            OutputDebugStringA("[Raknet] InitializeHook: no vtable on the peer");
-            return;
+        if (!hasExpectedVtable(RakPeer)) {
+            for (uintptr_t off = 0x100; off <= 0x300; off += 8) {
+                uintptr_t cand = *reinterpret_cast<uintptr_t*>(Peer + off);
+                if (hasExpectedVtable(cand)) {
+                    RakPeer = cand;
+                    matchedOff = off;
+                    break;
+                }
+            }
         }
 
-        // The peer must use the vtable the offsets describe, otherwise the
-        // slot indices below would point at unrelated functions.
-        if (ClientOffsets::RakNet::PeerVTable &&
-            reinterpret_cast<std::uintptr_t>(original_vftable) != ClientOffsets::RakNet::PeerVTable) {
-            sprintf_s(dbg, "[Raknet] vtable mismatch: got 0x%llX want 0x%llX - hook skipped",
-                (unsigned long long)reinterpret_cast<std::uintptr_t>(original_vftable),
-                (unsigned long long)ClientOffsets::RakNet::PeerVTable);
-            OutputDebugStringA(dbg);
+        if (!RakPeer || !CheckMemory(RakPeer))
             return;
-        }
+
+        void** original_vftable = *reinterpret_cast<void***>(RakPeer);
+        if (!original_vftable || !CheckMemory(reinterpret_cast<uintptr_t>(original_vftable)))
+            return;
+
+        if (reinterpret_cast<uintptr_t>(original_vftable) != expectedVtable)
+            return;
 
         const size_t slotCount = ClientOffsets::RakNet::VTableSlotCount;
-        const size_t sendSlot = Offsets::Raknet::idx_Send;
-        const size_t receiveSlot = Offsets::Raknet::idx_Receive;
-
-        if (slotCount == 0 || sendSlot >= slotCount || receiveSlot >= slotCount) {
-            OutputDebugStringA("[Raknet] slot indices out of range - hook skipped");
+        if (!CheckMemory(reinterpret_cast<uintptr_t>(original_vftable + slotCount - 1)))
             return;
-        }
-        if (!IsReadable(original_vftable, slotCount * sizeof(void*))) {
-            OutputDebugStringA("[Raknet] vtable is not fully readable - hook skipped");
-            return;
-        }
 
-        // Copy exactly as many slots as the peer vtable has. Copying more reads
-        // past the vtable and puts unrelated pointers into the copy.
         void** new_vftable = new void*[slotCount];
         memcpy(new_vftable, original_vftable, sizeof(void*) * slotCount);
-
-        original_raknet_send = reinterpret_cast<send_fn_t>(original_vftable[sendSlot]);
-        original_raknet_receive = reinterpret_cast<receive_fn_t>(original_vftable[receiveSlot]);
-
-        new_vftable[sendSlot] = reinterpret_cast<void*>(&rakpeerSendSharedHook);
-        new_vftable[receiveSlot] = reinterpret_cast<void*>(&rakpeerReceiveHook);
 
         original_vftable_saved = original_vftable;
         current_vftable = new_vftable;
         RakPeer_instance = RakPeer;
-        RakPeer_job = Peer;
 
+        original_raknet_send = reinterpret_cast<send_fn_t>(original_vftable[Offsets::Raknet::idx_Send]);
+        original_raknet_receive = reinterpret_cast<receive_fn_t>(original_vftable[Offsets::Raknet::idx_Receive]);
+
+        new_vftable[Offsets::Raknet::idx_Send] = reinterpret_cast<void*>(&rakpeerSendSharedHook);
+        new_vftable[Offsets::Raknet::idx_Receive] = reinterpret_cast<void*>(&rakpeerReceiveHook);
+
+        *reinterpret_cast<void***>(RakPeer) = new_vftable;
+
+        hooked = true;
+        OutputDebugStringA("[Raknet] hook installed");
+    }
+
+    static bool SafeCopyRbxPayload(uint64_t a2, uint64_t a3, uint8_t* outBuf, uint32_t maxCopy, uint32_t& outCopyLen, uint32_t& outFullSize, uint8_t*& outRawPtr)
+    {
+        outCopyLen = 0;
+        outFullSize = 0;
+        outRawPtr = nullptr;
         __try
         {
-            *reinterpret_cast<void***>(RakPeer) = new_vftable;
+            uint8_t* d = nullptr;
+            uint32_t s = 0;
+            if (a3 > 0x10000 && CheckMemory((uintptr_t)a3 + 0x10)) {
+                uintptr_t payload = *reinterpret_cast<uintptr_t*>(a3);
+                if (payload > 0x10000 && CheckMemory(payload + 0x38)) {
+                    uint8_t* pd = *reinterpret_cast<uint8_t**>(payload + ClientOffsets::RbxTransport::RawPayloadDataOff);
+                    uint32_t ps = *reinterpret_cast<uint32_t*>(payload + ClientOffsets::RbxTransport::PayloadLenOff);
+                    if (pd && ps > 0 && ps <= 0x100000 && CheckMemory((uintptr_t)pd) && CheckMemory((uintptr_t)pd + (size_t)ps - 1)) {
+                        d = pd;
+                        s = ps;
+                    }
+                }
+            }
+            if (!d && a2 > 0x10000 && a3 > 0 && a3 <= 0x100000 && CheckMemory((uintptr_t)a2) && CheckMemory((uintptr_t)a2 + (size_t)a3 - 1)) {
+                d = reinterpret_cast<uint8_t*>(a2);
+                s = static_cast<uint32_t>(a3);
+            }
+            if (!d || s == 0) return false;
+            outFullSize = s;
+            outRawPtr = d;
+            outCopyLen = (s < maxCopy) ? s : maxCopy;
+            memcpy(outBuf, d, outCopyLen);
+            return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            delete[] new_vftable;
-            current_vftable = nullptr;
-            original_vftable_saved = nullptr;
-            RakPeer_instance = 0;
-            OutputDebugStringA("[Raknet] could not install the vtable");
-            return;
+            outCopyLen = 0;
+            outFullSize = 0;
+            outRawPtr = nullptr;
+            return false;
+        }
+    }
+
+    static void SafeCorruptPacket(uint8_t* rawPtr)
+    {
+        __try {
+            for (int i = 0; i < 6; i++) rawPtr[i] = 0xFF;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+    static bool HandleRbxOutgoingPacket(const char* tag, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6)
+    {
+        uint8_t localBuf[2048];
+        uint32_t copyLen = 0;
+        uint32_t packetSize = 0;
+        uint8_t* rawPtr = nullptr;
+        if (!SafeCopyRbxPayload(a2, a3, localBuf, sizeof(localBuf), copyLen, packetSize, rawPtr) || copyLen == 0)
+            return false;
+
+        uint8_t packetId = localBuf[0];
+        ItemType itemId = (copyLen > 1) ? (ItemType)localBuf[1] : ItemTypeEnd;
+
+        if (!capturePaused)
+            RecordPacket(packetId, (uint8_t)itemId, packetSize * 8, HIGH_PRIORITY, RELIABLE_ORDERED, 0, copyLen, localBuf, false, 0);
+
+        if (desyncPing && (packetId == 0x00 || packetId == 0x01 || packetId == 0x03)) {
+            MarkLastPacketBlocked();
+            return true; // drop
         }
 
-        hooked = true;
-        OutputDebugStringA("[Raknet] hook installed (send+receive)");
+        if (desyncing && packetId == 0xA1 && copyLen >= 6 && rawPtr) {
+            SafeCorruptPacket(rawPtr);
+        }
+
+        if (hasSendHooks.load(std::memory_order_relaxed)) {
+            std::lock_guard<std::mutex> hlock(hooksMutex);
+            if (!OnSharedSendCallbacks.empty()) {
+                auto refs = CollectRefs(OnSharedSendCallbacks);
+                std::lock_guard<std::mutex> lock(callbackQueueMutex);
+                for (int ref : refs) {
+                    QueuedCallback qc;
+                    qc.ref = ref;
+                    qc.data.assign(localBuf, localBuf + copyLen);
+                    qc.size = copyLen;
+                    qc.priority = HIGH_PRIORITY;
+                    qc.reliability = RELIABLE_ORDERED;
+                    qc.orderingChannel = 0;
+                    qc.isSend = true;
+                    callbackQueue.push_back(std::move(qc));
+                }
+            }
+        }
+        return false;
+    }
+
+    uint64_t __fastcall rbxConnSendRawHook(void* _this, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6)
+    {
+        if (HandleRbxOutgoingPacket("RBX_SENDRAW", a2, a3, a4, a5, a6))
+            return 0;
+        return original_rbx_sendraw ? original_rbx_sendraw(_this, a2, a3, a4, a5, a6) : 0;
+    }
+
+    uint64_t __fastcall rbxConnSendHook(void* _this, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6)
+    {
+        if (HandleRbxOutgoingPacket("RBX_SEND", a2, a3, a4, a5, a6))
+            return 0;
+        return original_rbx_send ? original_rbx_send(_this, a2, a3, a4, a5, a6) : 0;
+    }
+
+    using rbx_recv_fn_t = uintptr_t(__fastcall*)(uintptr_t, uintptr_t);
+    static rbx_recv_fn_t original_rbx_recv = nullptr;
+
+    static void HandleRbxIncomingPacket(const uint8_t* data, uint32_t size)
+    {
+        if (!data || size == 0 || size > 65536)
+            return;
+
+        uint8_t packetId = data[0];
+        ItemType itemId = (size > 1) ? static_cast<ItemType>(data[1]) : ItemTypeEnd;
+
+        if (!capturePaused)
+            RecordPacket(packetId, static_cast<uint8_t>(itemId), 0, MEDIUM_PRIORITY, RELIABLE_ORDERED, 0, size, const_cast<uint8_t*>(data), false, 0);
+
+        if (hasReceiveHooks.load(std::memory_order_relaxed)) {
+            std::lock_guard<std::mutex> hlock(hooksMutex);
+            if (!OnSharedReceiveCallbacks.empty()) {
+                std::lock_guard<std::mutex> lock(callbackQueueMutex);
+                for (auto& cb : OnSharedReceiveCallbacks) {
+                    if (cb.packetId >= 0 && cb.packetId != static_cast<int>(packetId))
+                        continue;
+
+                    QueuedCallback qc;
+                    qc.ref = cb.ref;
+                    qc.data.assign(data, data + size);
+                    qc.size = size;
+                    qc.priority = MEDIUM_PRIORITY;
+                    qc.reliability = RELIABLE_ORDERED;
+                    qc.orderingChannel = 0;
+                    qc.isSend = false;
+                    callbackQueue.push_back(std::move(qc));
+                }
+            }
+        }
+    }
+
+    static uintptr_t __fastcall rbxConnRecvHook(uintptr_t _this, uintptr_t outVec)
+    {
+        uintptr_t ret = original_rbx_recv ? original_rbx_recv(_this, outVec) : 0;
+        if (!outVec || !CheckMemory(outVec + 0x10))
+            return ret;
+
+        uintptr_t begin = *reinterpret_cast<uintptr_t*>(outVec + 0x00);
+        uintptr_t end = *reinterpret_cast<uintptr_t*>(outVec + 0x08);
+        if (end <= begin || !CheckMemory(begin) || !CheckMemory(end - 1))
+            return ret;
+
+        constexpr uintptr_t kElemStride = 0x58;
+        for (uintptr_t elem = begin; elem + kElemStride <= end; elem += kElemStride) {
+            uint8_t isInline = *reinterpret_cast<uint8_t*>(elem + 0x38);
+            uintptr_t offset = *reinterpret_cast<uintptr_t*>(elem + 0x40);
+            const uint8_t* data = nullptr;
+            size_t size = 0;
+
+            if (isInline == 0) {
+                uintptr_t ptr = *reinterpret_cast<uintptr_t*>(elem + 0x00);
+                uintptr_t endPtr = *reinterpret_cast<uintptr_t*>(elem + 0x08);
+                if (ptr && endPtr > ptr + offset) {
+                    size_t len = static_cast<size_t>(endPtr - (ptr + offset));
+                    if (len > 0 && len <= 65536 && CheckMemory(ptr + offset) && CheckMemory(endPtr - 1)) {
+                        data = reinterpret_cast<const uint8_t*>(ptr + offset);
+                        size = len;
+                    }
+                }
+            } else {
+                uintptr_t inlineEnd = *reinterpret_cast<uintptr_t*>(elem + 0x20);
+                if (inlineEnd > offset && inlineEnd <= 0x20) {
+                    data = reinterpret_cast<const uint8_t*>(elem + 0x18 + offset);
+                    size = static_cast<size_t>(inlineEnd - offset);
+                }
+            }
+
+            if (data && size > 0)
+                HandleRbxIncomingPacket(data, static_cast<uint32_t>(size));
+        }
+        return ret;
+    }
+
+    void HookRbxTransportConn(uintptr_t conn)
+    {
+        if (rbxConnHooked || !conn || !CheckMemory(conn))
+            return;
+        void** origVT = *reinterpret_cast<void***>(conn);
+        if (!origVT || !CheckMemory(reinterpret_cast<uintptr_t>(origVT)))
+            return;
+
+        const size_t slotCount = ClientOffsets::RbxTransport::VTableSlotCount;
+        if (!CheckMemory(reinterpret_cast<uintptr_t>(origVT + slotCount - 1)))
+            return;
+
+        void** newVT = new void*[slotCount];
+        memcpy(newVT, origVT, sizeof(void*) * slotCount);
+
+        rbxconn_orig_vftable = origVT;
+        rbxconn_new_vftable = newVT;
+        RbxConn_instance = conn;
+
+        original_rbx_sendraw = reinterpret_cast<rbx_send_fn_t>(origVT[ClientOffsets::RbxTransport::SendRawSlot]);
+        original_rbx_send = reinterpret_cast<rbx_send_fn_t>(origVT[ClientOffsets::RbxTransport::SendSlot]);
+        original_rbx_recv = reinterpret_cast<rbx_recv_fn_t>(origVT[21]);
+
+        newVT[ClientOffsets::RbxTransport::SendRawSlot] = reinterpret_cast<void*>(&rbxConnSendRawHook);
+        newVT[ClientOffsets::RbxTransport::SendSlot] = reinterpret_cast<void*>(&rbxConnSendHook);
+        newVT[21] = reinterpret_cast<void*>(&rbxConnRecvHook);
+
+        *reinterpret_cast<void***>(conn) = newVT;
+        rbxConnHooked = true;
+    }
+
+    void DiagScan(lua_State* L, uintptr_t recvJob)
+    {
+        static bool scanned = false;
+        if (scanned || !L) return;
+
+        const uintptr_t connVT = ClientOffsets::RbxTransport::ConnVTable;
+        const uintptr_t rakConnVT = ClientOffsets::RbxTransport::RakNetConn::VTable;
+
+        auto scanObj = [&](uintptr_t obj, uintptr_t maxOff) {
+            if (!obj || !CheckMemory(obj + maxOff)) return;
+            for (uintptr_t o1 = 0; o1 <= maxOff; o1 += 8) {
+                uintptr_t p1 = *reinterpret_cast<uintptr_t*>(obj + o1);
+                if (!p1 || !CheckMemory(p1)) continue;
+                uintptr_t vt1 = *reinterpret_cast<uintptr_t*>(p1);
+                if (vt1 == connVT || vt1 == rakConnVT) {
+                    HookRbxTransportConn(p1);
+                }
+            }
+        };
+
+        if (recvJob)
+            scanObj(recvJob, 0x400);
+
+        int top = lua_gettop(L);
+        lua_getglobal(L, "game");
+        if (lua_type(L, -1) == LUA_TUSERDATA) {
+            lua_getfield(L, -1, "FindFirstChildOfClass");
+            lua_pushvalue(L, -2);
+            lua_pushstring(L, "NetworkClient");
+            if (lua_pcall(L, 2, 1, 0) == LUA_OK && lua_isuserdata(L, -1)) {
+                uintptr_t nc = *reinterpret_cast<uintptr_t*>(lua_touserdata(L, -1));
+                lua_getfield(L, -1, "FindFirstChildOfClass");
+                lua_pushvalue(L, -2);
+                lua_pushstring(L, "ClientReplicator");
+                uintptr_t rep = 0;
+                if (lua_pcall(L, 2, 1, 0) == LUA_OK && lua_isuserdata(L, -1)) {
+                    rep = *reinterpret_cast<uintptr_t*>(lua_touserdata(L, -1));
+                }
+                if (rep) {
+                    scanned = true;
+                    if (nc) scanObj(nc, 0x800);
+                    scanObj(rep, 0x1000);
+                }
+            }
+        }
+        lua_settop(L, top);
     }
     int raknet_desync(lua_State* L)
     {
@@ -848,19 +1011,34 @@ namespace Raknet
 
     int raknet_desyncping(lua_State* L)
     {
-        bool enabled = lua_toboolean(L, 1);
-
-        if (enabled) {
-            if (!Shared::ExploitThread) return 0;
-            Shared::StateGeneration.fetch_add(1);
-        }
-
+        desyncPing = lua_toboolean(L, 1);
         return 0;
     }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  OUTGOING PACKET API
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+    static int64_t SafeCallOriginalSend(uintptr_t peer, uint8_t* mem, PacketPriority priority, PacketReliability reliability, char channel)
+    {
+        int64_t sysIdBuf[8]{};
+        __try {
+            return original_raknet_send(
+                reinterpret_cast<int64_t*>(peer),
+                reinterpret_cast<int64_t*>(mem),
+                priority,
+                reliability,
+                channel,
+                sysIdBuf,
+                true,
+                0,
+                0
+            );
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            return 0;
+        }
+    }
 
     bool SendRawPacket(const uint8_t* data, uint32_t size, PacketPriority priority,
                        PacketReliability reliability, char channel)
@@ -915,17 +1093,7 @@ namespace Raknet
         *reinterpret_cast<uint32_t*>(mem + kBSOffset + 0x30) = size;
         *reinterpret_cast<uintptr_t*>(mem) = (uintptr_t)(mem + kBSOffset);
 
-        int64_t result = original_raknet_send(
-            reinterpret_cast<int64_t*>(RakPeer_instance),
-            reinterpret_cast<int64_t*>(mem),
-            priority,
-            reliability,
-            channel,
-            nullptr,
-            false,
-            0,
-            0
-        );
+        int64_t result = SafeCallOriginalSend(RakPeer_instance, mem, priority, reliability, channel);
 
         VirtualFree(mem, 0, MEM_RELEASE);
 
@@ -1258,49 +1426,32 @@ namespace Raknet
         lua_pop(L, 1);
     }
 
-    // POD only: restores the peer vtable under SEH so a peer that was already
-    // freed cannot take the process down.
-    static bool RestorePeerVtable(uintptr_t peer, void** current, void** original)
-    {
-        if (!peer || !current || !original)
-            return false;
-
-        __try
-        {
-            if (!IsReadable(reinterpret_cast<void*>(peer), sizeof(void*)))
-                return false;
-
-            void** live = *reinterpret_cast<void***>(peer);
-
-            if (live != current)
-                return false;
-
-            *reinterpret_cast<void***>(peer) = original;
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
     void ResetHook()
     {
-        // Put the original vtable back before anything else. Clearing the
-        // original function pointers while the peer still points at our hook
-        // makes every send return 0 without sending, which silently kills the
-        // client traffic and ends up as a server side disconnect.
-        if (RakPeer_instance && original_vftable_saved)
-            RestorePeerVtable(RakPeer_instance, current_vftable, original_vftable_saved);
-
+        if (RakPeer_instance && original_vftable_saved && CheckMemory(RakPeer_instance)) {
+            *reinterpret_cast<void***>(RakPeer_instance) = original_vftable_saved;
+        }
         delete[] current_vftable;
         current_vftable = nullptr;
         original_vftable_saved = nullptr;
-        RakPeer_instance = 0;
-        RakPeer_job = 0;
-
         hooked = false;
+        RakPeer_instance = 0;
+        original_raknet_send = nullptr;
+        original_raknet_receive = nullptr;
+
+        if (RbxConn_instance && rbxconn_orig_vftable && CheckMemory(RbxConn_instance)) {
+            *reinterpret_cast<void***>(RbxConn_instance) = rbxconn_orig_vftable;
+        }
+        delete[] rbxconn_new_vftable;
+        rbxconn_new_vftable = nullptr;
+        rbxconn_orig_vftable = nullptr;
+        rbxConnHooked = false;
+        RbxConn_instance = 0;
+        original_rbx_sendraw = nullptr;
+        original_rbx_send = nullptr;
+
         desyncing = false;
+        desyncPing = false;
         hasSendHooks.store(false, std::memory_order_relaxed);
         hasReceiveHooks.store(false, std::memory_order_relaxed);
         {

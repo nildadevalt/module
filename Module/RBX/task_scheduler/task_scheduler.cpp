@@ -8,6 +8,7 @@
 #include <RBX/environment/libs/raknet/raknet.hpp>
 #include <RBX/environment/libs/websocket/websocket.hpp>
 #include <RBX/environment/libs/drawing/drawing.hpp>
+#include <RBX/environment/libs/drawingimmediate/drawingimmediate.hpp>
 #include <RBX/environment/libs/closures/closures.hpp>
 #include <RBX/environment/libs/signals/signals.hpp>
 #include <RBX/environment/libs/reflection/reflection.hpp>
@@ -29,7 +30,6 @@
 
 #include <chrono>
 #include <string>
-#include <vector>
 
 #include <imgui/imgui_internal.h>
 namespace
@@ -239,20 +239,23 @@ int ScriptsHandler(lua_State* L)
 	if (!BoundExecutorThread || BoundExecutorThread != Shared::ExploitThread)
 		return 0;
 
-	// drain the whole queue each tick; swap out of lock to avoid O(N^2)
-	// erase(begin()) and to minimize lock hold time
-	std::vector<std::string> Pending;
+	// drain the whole queue each tick — one script per step made a batch
+	// of N scripts cost N frames
+	for (;;)
 	{
-		std::lock_guard<std::mutex> lock(Shared::ExecutionRequestsMutex);
-		if (!Shared::ExecutionRequests.empty())
-			Pending.swap(Shared::ExecutionRequests);
-	}
+		std::string Script;
+		{
+			std::lock_guard<std::mutex> lock(Shared::ExecutionRequestsMutex);
+			if (Shared::ExecutionRequests.empty())
+				break;
+			Script = std::move(Shared::ExecutionRequests.front());
+			Shared::ExecutionRequests.erase(Shared::ExecutionRequests.begin());
+		}
 
-	for (std::string& Script : Pending)
-	{
 		if (!Script.empty())
 			Execution::ExecuteScript(BoundExecutorThread, std::move(Script));
 	}
+
 	Raknet::ProcessCallbacks(BoundExecutorThread);
 
 	Yielding::RunYield();
@@ -269,13 +272,7 @@ static void RestoreJobVtableSafely()
 		if (Shared::LastWaitingHybridScriptsJob && Shared::OriginalHybridJobVtable &&
 			CheckMemory(Shared::LastWaitingHybridScriptsJob))
 		{
-			// Only restore when the job still points at our copy. The job may
-			// have been freed and the memory reused, and writing the original
-			// vtable into an unrelated object corrupts it.
-			auto* jobVtable = *reinterpret_cast<uintptr_t**>(Shared::LastWaitingHybridScriptsJob);
-
-			if (jobVtable == Shared::HybridJobVtable)
-				*reinterpret_cast<uintptr_t**>(Shared::LastWaitingHybridScriptsJob) = Shared::OriginalHybridJobVtable;
+			*reinterpret_cast<uintptr_t**>(Shared::LastWaitingHybridScriptsJob) = Shared::OriginalHybridJobVtable;
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
@@ -418,6 +415,13 @@ static bool ExecuteGameImpl()
 			Execution::ExecuteScript(Shared::ExploitThread, std::move(Script));
 	}
 
+	DrawingImmediate::Render(Shared::ExploitThread);
+	if (!Raknet::hooked)
+	{
+		if (uintptr_t peerJob = task_scheduler::GetJobByTypeName(ClientOffsets::RakNet::JobNameSend, 0))
+			Raknet::InitializeHook(peerJob);
+	}
+	Raknet::DiagScan(Shared::ExploitThread, task_scheduler::GetJobByTypeName(ClientOffsets::RakNet::JobNameRecv, 0));
 	Raknet::ProcessCallbacks(Shared::ExploitThread);
 	Yielding::RunYield();
 	return true;
@@ -561,7 +565,7 @@ void task_scheduler::RequestExecution(std::string Script)
 // GetJobByTypeName — iterates scheduler job list
 // ══════════════════════════════════════════════════════════════════════════════
 
-uintptr_t task_scheduler::GetJobByTypeName(std::string_view TypeName, uintptr_t DataModel)
+uintptr_t task_scheduler::GetJobByTypeName(const std::string& TypeName, uintptr_t DataModel)
 {
     __try
     {
@@ -603,30 +607,31 @@ uintptr_t task_scheduler::GetJobByTypeName(std::string_view TypeName, uintptr_t 
 			continue;
 
 		const uintptr_t nameAddress = Job + Offsets::Scheduler::JobTypeName;
+		if (!CheckMemory(nameAddress + 0x18))
+			continue;
 		const size_t size = *reinterpret_cast<const size_t*>(nameAddress + 0x10);
 		const size_t capacity = *reinterpret_cast<const size_t*>(nameAddress + 0x18);
 		if (size != nameLen || capacity < size)
 			continue;
-
 		const char* candidate = capacity < 16
 			? reinterpret_cast<const char*>(nameAddress)
 			: *reinterpret_cast<const char* const*>(nameAddress);
-		if (!candidate)
-			continue;
-
-		if (memcmp(candidate, TypeName.data(), nameLen) != 0)
-			continue;
-
-		if (DataModel)
+		if (candidate && CheckMemory(reinterpret_cast<uintptr_t>(candidate)) &&
+			CheckMemory(reinterpret_cast<uintptr_t>(candidate) + nameLen))
 		{
-			const uintptr_t Context = *reinterpret_cast<uintptr_t*>(Job + ClientOffsets::jobs_offsets::scriptContext);
-			if (!Context)
+			if (memcmp(candidate, TypeName.c_str(), nameLen) != 0)
 				continue;
-			const uintptr_t Owner = *reinterpret_cast<uintptr_t*>(Context + ClientOffsets::ScriptContext::DataModel);
-			if (Owner != DataModel && Owner + ClientOffsets::DataModel::InstanceSubobject != DataModel)
-				continue;
+			if (DataModel)
+			{
+				const uintptr_t Context = *reinterpret_cast<uintptr_t*>(Job + ClientOffsets::jobs_offsets::scriptContext);
+				if (!Context || !CheckMemory(Context + ClientOffsets::ScriptContext::DataModel))
+					continue;
+				const uintptr_t Owner = *reinterpret_cast<uintptr_t*>(Context + ClientOffsets::ScriptContext::DataModel);
+				if (Owner != DataModel && Owner + ClientOffsets::DataModel::InstanceSubobject != DataModel)
+					continue;
+			}
+			return Job;
 		}
-		return Job;
 	}
 
 	return 0;

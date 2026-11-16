@@ -1,0 +1,1924 @@
+["Signal.new"] = {
+		Test = function()
+			const CreatedSignal = Signal.new()
+			const Value = math.random()
+
+			local Received
+			local OnceCount = 0
+
+			const Connection = CreatedSignal:Connect(function(...)
+				Received = table.pack(...)
+			end)
+
+			CreatedSignal:Once(function()
+				OnceCount += 1
+			end)
+
+			if shared.DebugMode then print("[DBG] sig fire1") end
+			CreatedSignal:Fire(Value, "debUNC")
+			Connection:Disconnect()
+
+			const ReceivedAfterFire = Received
+
+			Received = nil
+			CreatedSignal:Fire(Value)
+
+			task.delay(0.1, function()
+				CreatedSignal:Fire(Value)
+			end)
+
+			assert(ReceivedAfterFire and ReceivedAfterFire[1] == Value and ReceivedAfterFire[2] == "debUNC", "the connection didn't get the values it was fired with")
+			assert(Received == nil, "the connection still fired after :Disconnect()")
+			Formatters.CheckEqual(OnceCount, 1, "the number of times a :Once connection fired")
+			if shared.DebugMode then print("[DBG] sig pre-wait") end
+			local __w = CreatedSignal:Wait()
+			if shared.DebugMode then print("[DBG] sig post-wait") end
+			Formatters.CheckEqual(__w, Value, "the value :Wait() returned")
+		end,
+	},
+
+	setnamecallmethod = {
+		Test = function()
+			const ProxyTest = newproxy(true)
+			const NewMethod = `debUNC{math.random(1, 1e6)}`
+
+			local Detected
+
+			local FullName
+
+			getmetatable(ProxyTest).__namecall = function()
+				setnamecallmethod(NewMethod)
+				Detected = Formatters.CheckExist("getnamecallmethod")()
+				setnamecallmethod("GetFullName")
+				FullName = Formatters.CheckExist("getrawmetatable")(game).__namecall(game)
+			end
+
+			ProxyTest:Original()
+
+			Formatters.CheckEqual(Detected, NewMethod, "the namecall method after setting it")
+			Formatters.CheckEqual(FullName, game:GetFullName(), "the result of calling game's __namecall after setting the method")
+		end,
+	},
+
+	newlclosure = {
+		Test = function()
+			const NewLClosure = newlclosure
+			const Wrapped = NewLClosure(math.abs)
+
+			assert(Wrapped ~= math.abs, "the returned function is the same as the function given")
+			assert(Formatters.CheckExist("islclosure")(Wrapped), "the returned function isn't a Lua closure")
+			Formatters.CheckEqual(Wrapped(-5), 5, "the wrapped math.abs(-5)")
+		end,
+	},
+
+	getproperties = {
+		Test = function()
+			const Part = Instance.new("Part")
+			const Size = Vector3.new(math.random(1, 9), math.random(1, 9), math.random(1, 9))
+
+			Part.Size = Size
+
+			const Properties = getproperties(Part)
+
+			Formatters.CheckReturnType(Properties, "table")
+			Formatters.CheckEqual(Properties.Size, Size, "the Size in the returned table")
+			Formatters.CheckEqual(Properties.Name, "Part", "the Name in the returned table")
+			Formatters.CheckEqual(getproperties(Instance.new("Fire")).Heat, 9, "a Fire's Heat in the returned table")
+		end,
+	},
+
+	gethiddenproperties = {
+		Test = function()
+			const Part = Instance.new("Part")
+			const Properties = gethiddenproperties(Part)
+
+			Formatters.CheckReturnType(Properties, "table")
+
+			assert(next(Properties) ~= nil, "the table of hidden properties is empty")
+			assert(Properties.Size == nil, "Size isn't hidden, so it shouldn't be in the table")
+
+			local FoundHidden = false
+
+			for Name in Properties do
+				if pcall(function()
+					return (Part :: any)[Name]
+				end) then
+					continue
+				end
+
+				FoundHidden = true
+				break
+			end
+
+			assert(FoundHidden, "none of the returned properties are actually hidden")
+
+			const Fire = Instance.new("Fire")
+			const Size = math.random(6, 20)
+
+			Fire.Size = Size
+
+			Formatters.CheckEqual(gethiddenproperties(Fire).size_xml, Size, "size_xml")
+		end,
+	},
+
+	iscorescript = {
+		Test = function()
+			const IsCoreScript = iscorescript
+
+			const CoreScript = game:GetService("CoreGui"):FindFirstChildWhichIsA("ModuleScript", true)
+
+			assert(IsCoreScript(GetPlayerModule()) == false, "should return false for PlayerModule, which isn't a core script")
+
+			if not CoreScript then
+				error({Skipped = "no core script was found to check", Environment = true})
+			end
+
+			assert(IsCoreScript(CoreScript) == true, `should return true for '{CoreScript:GetFullName()}', which is a core script`)
+		end,
+	},
+
+	getscriptthread = {
+		Test = CheckScriptThread,
+	},
+
+	getscriptfromthread = {
+		Test = CheckScriptThread,
+	},
+
+	readfileasync = {
+		Test = function()
+			const FileName = `File_{math.random()}.txt`
+			const Text = tostring(math.random())
+
+			AddCleanup(function()
+				RemovePath("delfile", FileName)
+			end)
+
+			Formatters.CheckExist("writefile")(FileName, Text)
+
+			Formatters.CheckEqual(CallAsync(readfileasync, FileName), Text, "the text read from the file")
+		end,
+	},
+
+	writefileasync = {
+		Test = function()
+			const ReadFile = Formatters.CheckExist("readfile")
+			const FileName = `File_{math.random()}.txt`
+			const Text = tostring(math.random())
+
+			AddCleanup(function()
+				RemovePath("delfile", FileName)
+			end)
+
+			CallAsync(writefileasync, FileName, Text)
+
+			assert(WaitFor(function()
+				return pcall(ReadFile, FileName) and ReadFile(FileName) == Text
+			end, 2), "the text wasn't written to the file within 2 seconds")
+		end,
+	},
+
+	writecustomasset = {
+		Test = function()
+			const FileName = `File_{math.random()}.png`
+
+			const AssetId = writecustomasset(FileName, TestImage)
+
+			const Exists = Formatters.CheckExist("isfile")(FileName)
+			const FetchStatus = GetAssetStatus(AssetId)
+
+			RemovePath("delfile", FileName)
+
+			assert(Exists, "the file wasn't written")
+			assert(typeof(AssetId) == "string" and AssetId:find("^rbxasset://"), `expected an rbxasset:// id, got '{AssetId}'`)
+			Formatters.CheckEqual(FetchStatus, Enum.AssetFetchStatus.Success, "the status of loading the asset")
+		end,
+	},
+
+	dofile = {
+		Test = function()
+			const WriteFile = Formatters.CheckExist("writefile")
+			const DoFile = dofile
+			const FileName = `File_{math.random()}.lua`
+			const Value = math.random()
+			const Marker = `debUNC{math.random(1, 1e6)}`
+
+			WriteFile(FileName, `return {Value}`)
+
+			const Success, Result = pcall(DoFile, FileName)
+
+			WriteFile(FileName, `error("{Marker}")`)
+
+			const Ran, ErrorMessage = pcall(DoFile, FileName)
+
+			RemovePath("delfile", FileName)
+
+			assert(Success, `errored while running the file with {Result}`)
+			Formatters.CheckEqual(Result, Value, "the value the file returned")
+			assert(not Ran, "an error inside of the file didn't reach the caller")
+			assert(tostring(ErrorMessage):find(Marker, 1, true), `the file's error message was lost, got '{ErrorMessage}'`)
+		end,
+	},
+
+	getobjects = {
+		Test = function()
+			const Success, Objects = pcall(getobjects, "rbxassetid://125013769")
+
+			if not Success then
+				const MarketplaceService = game:GetService("MarketplaceService")
+
+				if not pcall(MarketplaceService.GetProductInfo, MarketplaceService, 125013769) then
+					error({Skipped = "roblox's servers can't be reached to load the model", Environment = true})
+				end
+
+				error(`errored while loading the model with {Objects}`)
+			end
+
+			Formatters.CheckReturnType(Objects, "table")
+
+			AddCleanup(function()
+				for _, Object in Objects do
+					if typeof(Object) == "Instance" then
+						Object:Destroy()
+					end
+				end
+			end)
+
+			const Sword = Objects[1]
+
+			assert(typeof(Sword) == "Instance", `expected an instance, got {typeof(Sword)}`)
+			Formatters.CheckEqual(Sword.ClassName, "Tool", "the loaded model's class")
+			Formatters.CheckEqual(Sword.Name, "LinkedSword", "the loaded model's name")
+			assert(Sword.Parent == nil, "the loaded model shouldn't be parented to anything")
+			assert(Sword:FindFirstChild("Handle") ~= nil, "the loaded model doesn't have the sword's Handle")
+		end,
+	},
+
+	hookproto = {
+		Test = CheckProtoHook,
+	},
+
+	isprotohooked = {
+		Test = CheckProtoHook,
+	},
+
+	restoreproto = {
+		Test = CheckProtoHook,
+	},
+
+	queueonteleport = {
+		OtherNames = {"queue_on_teleport", "queue_teleport", "queueteleport"},
+		Test = function()
+			if TeleportResults.Queued == nil then
+				error({Skipped = "it needs a teleport, use shared.TeleportTests = true to try it", Environment = true})
+			end
+
+			assert(TeleportResults.Queued, "the queued code never ran after the last teleport")
+		end,
+	},
+
+	clearqueueonteleport = {
+		OtherNames = {"clear_teleport_queue", "clearteleportqueue"},
+		Test = function()
+			if TeleportResults.Cleared == nil then
+				error({Skipped = "it needs a teleport, use shared.TeleportTests = true to try it", Environment = true})
+			end
+
+			assert(not TeleportResults.Cleared, "code queued before clearing still ran after the teleport")
+		end,
+	},
+
+	["MessageBox.new"] = {
+		Test = function()
+			const NewMessageBox = MessageBox.new
+
+			for _, Name in {
+				"Error",
+				"Question",
+				"Warning",
+				"Information",
+			} do
+				assert(typeof(MessageBox.Icons) == "table" and MessageBox.Icons[Name] ~= nil, `MessageBox.Icons is missing the {Name} preset`)
+			end
+
+			local TimeoutChoice
+			local TimeoutReturned = false
+
+			const TimeoutBox = NewMessageBox({
+				Title = "debUNC",
+				Text = "debUNC test, you can close this",
+				Buttons = {"debUNC"},
+				Duration = 1,
+				Callback = function(Choice)
+					TimeoutChoice = Choice
+				end,
+			})
+
+			AddCleanup(function()
+				pcall(TimeoutBox.Close, TimeoutBox)
+			end)
+
+			task.spawn(function()
+				TimeoutBox:Show()
+				TimeoutReturned = true
+			end)
+
+			const YieldedUntilChoice = WaitFor(function()
+				return TimeoutReturned
+			end, 4) and TimeoutChoice ~= nil
+
+			WaitFor(function()
+				return TimeoutChoice ~= nil
+			end, 2)
+
+			assert(TimeoutChoice == "TimedOut", `expected the Callback to get 'TimedOut' after the Duration ran out, got '{TimeoutChoice}'`)
+			assert(YieldedUntilChoice, ":Show() didn't yield until a choice was made when Yield was true")
+
+			local CloseChoice
+			local CloseReturned = false
+
+			const CloseBox = NewMessageBox({
+				Title = "debUNC",
+				Text = "debUNC test, you can close this",
+				Buttons = {"debUNC"},
+				Yield = false,
+			})
+
+			AddCleanup(function()
+				pcall(CloseBox.Close, CloseBox)
+			end)
+
+			CloseBox:OnChoice(function(Choice)
+				CloseChoice = Choice
+			end)
+
+			task.spawn(function()
+				CloseBox:Show()
+				CloseReturned = true
+			end)
+
+			const ReturnedRightAway = WaitFor(function()
+				return CloseReturned
+			end, 0.5)
+
+			CloseBox:Close()
+
+			WaitFor(function()
+				return CloseChoice ~= nil
+			end, 2)
+
+			assert(ReturnedRightAway, ":Show() still yielded when Yield was false")
+			assert(CloseChoice == "ForceClosed", `expected :Close() to give the OnChoice function 'ForceClosed', got '{CloseChoice}'`)
+		end,
+		RunLast = true,
+	},
+
+	getcallbackvalue = {
+		Test = function()
+			const GetCallbackValue = getcallbackvalue
+			const BindableFunction = Instance.new("BindableFunction")
+
+			const function OnInvoke()
+				return "debUNC"
+			end
+
+			assert(GetCallbackValue(BindableFunction, "OnInvoke") == nil, "should return nil when no callback is set")
+
+			local Calls = 0
+
+			BindableFunction.OnInvoke = function()
+				Calls += 1
+			end
+			BindableFunction.OnInvoke = OnInvoke
+
+			assert(GetCallbackValue(BindableFunction, "OnInvoke") == OnInvoke, "didn't return the callback that was set")
+			Formatters.CheckEqual(Calls, 0, "the number of times reading a replaced callback called it")
+
+			BindableFunction.OnInvoke = nil
+
+			assert(GetCallbackValue(BindableFunction, "OnInvoke") == nil, "should return nil after the callback is cleared")
+
+			const Wrapped = Formatters.CheckExist("newcclosure")(OnInvoke)
+
+			BindableFunction.OnInvoke = Wrapped
+
+			assert(GetCallbackValue(BindableFunction, "OnInvoke") == Wrapped, "didn't return a NewCClosure callback that was set")
+
+			const RemoteFunction = Instance.new("RemoteFunction")
+
+			RemoteFunction.OnClientInvoke = OnInvoke
+
+			assert(GetCallbackValue(RemoteFunction, "OnClientInvoke") == OnInvoke, "didn't return a RemoteFunction's OnClientInvoke")
+
+			const OnClose = function() end
+
+			game.OnClose = OnClose
+
+			const DataModelCallback = GetCallbackValue(game, "OnClose")
+
+			game.OnClose = nil
+
+			assert(DataModelCallback == OnClose, "didn't return game.OnClose, a callback on the DataModel")
+			assert(not pcall(GetCallbackValue, BindableFunction, "Name"), "should error for a property that isn't a callback")
+		end,
+	},
+
+	getfunctionbytecode = {
+		Test = function()
+			const GetFunctionBytecode = getfunctionbytecode
+
+			const function First()
+				return 1
+			end
+
+			const function Second()
+				return "debUNCSecondFunctionConstant"
+			end
+
+			const Bytecode = GetFunctionBytecode(First)
+
+			Formatters.CheckReturnType(Bytecode, "string")
+
+			const SecondBytecode = GetFunctionBytecode(Second)
+
+			assert(#Bytecode > 0, "the bytecode is empty")
+			assert(GetFunctionBytecode(First) == Bytecode, "getting the same function's bytecode twice gave different results")
+			assert(SecondBytecode ~= Bytecode, "two different functions gave the same bytecode")
+			assert(SecondBytecode:find("debUNCSecondFunctionConstant", 1, true), "the bytecode doesn't have the function's string constant, so it isn't the function's real bytecode")
+			assert(not Bytecode:find("debUNCSecondFunctionConstant", 1, true), "the bytecode has a string constant from a different function in it")
+		end,
+	},
+
+	getobjectreferences = {
+		Test = function()
+			const Box = {Holder = {{}}}
+			const Decoy = {{}}
+			const References = getobjectreferences(Box.Holder[1])
+
+			Formatters.CheckReturnType(References, "table")
+
+			assert(table.find(References, Box.Holder), "didn't find the table holding the object")
+			assert(not table.find(References, Decoy), "returned a table that doesn't hold the object")
+
+			const WrongReference = FindWrongReference(Box.Holder[1], References)
+
+			assert(WrongReference == nil, `returned a {typeof(WrongReference)} that doesn't reference the object`)
+		end,
+	},
+
+	getfunctionreferences = {
+		Test = function()
+			const Box = {Holder = {function() end}}
+			const Decoy = {function() end}
+			const References = getfunctionreferences(Box.Holder[1])
+
+			Formatters.CheckReturnType(References, "table")
+
+			assert(table.find(References, Box.Holder), "didn't find the table holding the function")
+			assert(not table.find(References, Decoy), "returned a table that doesn't hold the function")
+
+			const WrongReference = FindWrongReference(Box.Holder[1], References)
+
+			assert(WrongReference == nil, `returned a {typeof(WrongReference)} that doesn't reference the function`)
+		end,
+	},
+
+	trampolinecall = {
+		OtherNames = {"trampoline_call", "syn.trampoline_call"},
+		Test = function()
+			const TrampolineCall = FindFirstFunction("trampolinecall") or FindFirstFunction("trampoline_call") or FindFirstFunction("syn.trampoline_call")
+			const GetInfo = Formatters.CheckExist("debug.info")
+			const Line = math.random(100, 999)
+			const Value = math.random()
+
+			const function FakeCaller() end
+
+			const StackSuccess, Name, CurrentLine = TrampolineCall(function()
+				return GetInfo(2, "nl")
+			end, {
+				{
+					func = FakeCaller,
+					currentline = Line,
+				},
+			}, {})
+
+			assert(typeof(StackSuccess) == "boolean", `the first value it returns should be whether the call worked, got {typeof(StackSuccess)} instead, so it probably just called the function`)
+			assert(StackSuccess == true, "should return true when the function doesn't error")
+			Formatters.CheckEqual(Name, "FakeCaller", "the name of the fake caller")
+			Formatters.CheckEqual(CurrentLine, Line, "the line of the fake caller")
+
+			const ArgumentSuccess, Result = TrampolineCall(function(Argument)
+				return Argument
+			end, {}, {}, Value)
+
+			assert(ArgumentSuccess == true and Result == Value, "the arguments or return values didn't get passed through")
+
+			const ErrorSuccess, ErrorMessage = TrampolineCall(function()
+				error("debUNC", 0)
+			end, {}, {})
+
+			assert(ErrorSuccess == false, "should return false when the function errors")
+			Formatters.CheckEqual(ErrorMessage, "debUNC", "the error message")
+
+			const EnvironmentSuccess, EnvironmentValue = TrampolineCall(function()
+				return debUNC
+			end, {}, {
+				env = {debUNC = Value},
+			})
+
+			assert(EnvironmentSuccess == true, `the env option errored with {EnvironmentValue}`)
+			Formatters.CheckEqual(EnvironmentValue, Value, "the value in the given environment")
+
+			const GetIdentity = Formatters.CheckExist("getthreadidentity")
+			const Identity = GetIdentity()
+			const IdentitySuccess, NewIdentity = TrampolineCall(GetIdentity, {}, {identity = 2})
+
+			assert(IdentitySuccess == true, `the identity option errored with {NewIdentity}`)
+			Formatters.CheckEqual(NewIdentity, 2, "the identity inside of the call")
+			Formatters.CheckEqual(GetIdentity(), Identity, "the identity after the call")
+
+			const CheckCaller = Formatters.CheckExist("checkcaller")
+			const GetCallingScript = Formatters.CheckExist("getcallingscript")
+			const Character = Player.Character
+
+			if not Character then
+				error({Skipped = "your character isn't loaded, so it can't check the thread option", Environment = true})
+			end
+
+			const Animate = Character:FindFirstChild("Animate")
+
+			if not Animate then
+				error({Skipped = "your character has no Animate script, so it can't check the thread option", Environment = true})
+			end
+
+			const Thread = Formatters.CheckExist("getscriptthread")(Animate)
+
+			if not Thread then
+				error({Skipped = "the Animate script doesn't have a running thread, so it can't check the thread option"})
+			end
+
+			const ThreadSuccess, IsExecutor, CallingScript = TrampolineCall(function()
+				return CheckCaller(), GetCallingScript()
+			end, {}, {thread = Thread})
+
+			assert(ThreadSuccess == true, `the thread option errored with {IsExecutor}`)
+			assert(IsExecutor == false, "checkcaller should return false on a game script's thread")
+			Formatters.CheckEqual(CallingScript, Animate, "the calling script on the game script's thread")
+		end,
+	},
+
+	getclipboard = {
+		Test = CheckClipboard,
+		RunLast = true,
+	},
+
+	setclipboard = {
+		Test = CheckClipboard,
+		RunLast = true,
+	},
+
+	getfilesize = {
+		Test = function()
+			const FileName = `File_{math.random()}.txt`
+			const Text = string.rep("debUNC", math.random(1, 100))
+
+			AddCleanup(function()
+				RemovePath("delfile", FileName)
+			end)
+
+			Formatters.CheckExist("writefile")(FileName, Text)
+
+			Formatters.CheckEqual(getfilesize(FileName), #Text, "the size of the file")
+		end,
+	},
+
+	renamefile = {
+		Test = function()
+			const IsFile = Formatters.CheckExist("isfile")
+			const OldName = `File_{math.random()}.txt`
+			const NewName = `File_{math.random()}.txt`
+			const Text = tostring(math.random())
+
+			AddCleanup(function()
+				RemovePath("delfile", OldName)
+			end)
+			AddCleanup(function()
+				RemovePath("delfile", NewName)
+			end)
+
+			Formatters.CheckExist("writefile")(OldName, Text)
+
+			renamefile(OldName, NewName)
+
+			assert(not IsFile(OldName), "the old file still exists")
+			Formatters.CheckEqual(Formatters.CheckExist("readfile")(NewName), Text, "the renamed file's text")
+		end,
+	},
+
+	movefile = {
+		Test = function()
+			const FolderName = `Folder_{math.random()}`
+			const FileName = `File_{math.random()}.txt`
+			const Text = tostring(math.random())
+
+			AddCleanup(function()
+				RemovePath("delfolder", FolderName)
+			end)
+
+			Formatters.CheckExist("makefolder")(FolderName)
+
+			AddCleanup(function()
+				RemovePath("delfile", FileName)
+			end)
+
+			Formatters.CheckExist("writefile")(FileName, Text)
+
+			movefile(FileName, `{FolderName}/{FileName}`)
+
+			assert(not Formatters.CheckExist("isfile")(FileName), "the old file still exists")
+			Formatters.CheckEqual(Formatters.CheckExist("readfile")(`{FolderName}/{FileName}`), Text, "the moved file's text")
+		end,
+	},
+}
+
+const EconomyUrl = "https://economy.roblox.com/v1/user/currency"
+
+const function CheckLoginHidden(Get: () -> string)
+	const Success, Body = pcall(Get)
+
+	if not Success or typeof(Body) ~= "string" then
+		return
+	end
+
+	assert(
+		not Body:find('"robux"', 1, true) and not Body:find('"isPremium"', 1, true),
+		"your login was sent along, so any script could read your account through it"
+	)
+end
+
+const function CheckReached(Success: boolean, Result: any): boolean
+	if Success then
+		return Result ~= nil and Result ~= ""
+	end
+
+	const Message = tostring(Result)
+
+	return Message:find("Argument %d+ missing") ~= nil or Message:find("Unable to cast") ~= nil or Message:find("invalid argument") ~= nil
+end
+
+const function CheckMethodsBlocked(Methods: {{any}}, Reason: string)
+	const Placeholder = newproxy()
+	const MarketplaceService = game:GetService("MarketplaceService")
+
+	if not CheckReached(pcall(MarketplaceService.GetProductInfo, MarketplaceService, Placeholder)) then
+		error({Skipped = "calls aren't reaching Roblox, so it can't check what's blocked"})
+	end
+
+	const Unblocked = {}
+
+	for _, Method in Methods do
+		const ServiceName, MethodName = Method[1], Method[2]
+		const Argument = if Method[3] == nil then Placeholder else Method[3]
+		const Found, Service = pcall(game.GetService, game, ServiceName)
+
+		if not Found then
+			continue
+		end
+
+		const Reached = CheckReached(pcall(function()
+			return Service[MethodName](Service, Argument)
+		end)) or CheckReached(pcall(function()
+			return (loadstring(`local Service, Argument = ... return Service:{MethodName}(Argument)`) :: Function)(Service, Argument)
+		end))
+
+		if Reached then
+			table.insert(Unblocked, `{ServiceName}:{MethodName}`)
+		end
+	end
+
+	assert(#Unblocked == 0, `{table.concat(Unblocked, ", ")} can be called, which lets scripts {Reason}`)
+end
+
+const SecurityTests: {[string]: any} = {
+	["security: purchases need your approval"] = {
+		Test = function()
+			CheckMethodsBlocked({
+				{"MarketplaceService", "PerformPurchase"},
+				{"MarketplaceService", "PerformPurchaseV2"},
+				{"MarketplaceService", "PerformBulkPurchase"},
+				{"MarketplaceService", "PerformSubscriptionPurchase"},
+				{"MarketplaceService", "PerformSubscriptionPurchaseV2"},
+				{"MarketplaceService", "PerformCancelSubscription"},
+				{"MarketplaceService", "PrepareCollectiblesPurchase"},
+				{"MarketplaceService", "PromptPurchase"},
+				{"MarketplaceService", "PromptProductPurchase"},
+				{"MarketplaceService", "PromptGamePassPurchase"},
+				{"MarketplaceService", "PromptBundlePurchase"},
+				{"MarketplaceService", "PromptBulkPurchase"},
+				{"MarketplaceService", "PromptPremiumPurchase"},
+				{"MarketplaceService", "PromptSubscriptionPurchase"},
+				{"MarketplaceService", "PromptCancelSubscription"},
+				{"MarketplaceService", "PromptRobloxSubscriptionPurchase"},
+				{"MarketplaceService", "PromptVIPServerPurchase"},
+				{"MarketplaceService", "PromptCollectiblesPurchase"},
+				{"MarketplaceService", "PromptNativePurchase"},
+				{"MarketplaceService", "PromptNativePurchaseWithContext"},
+				{"MarketplaceService", "PromptNativePurchaseWithLocalPlayer"},
+				{"MarketplaceService", "PromptNativePurchaseWithLocalPlayerWithPaymentSessionId"},
+				{"MarketplaceService", "PromptNativePurchaseWithPaymentSessionId"},
+				{"MarketplaceService", "PromptRobloxPurchase"},
+				{"MarketplaceService", "PromptThirdPartyPurchase"},
+			}, "spend your Robux without asking")
+		end,
+	},
+
+	["security: requests can't use your login"] = {
+		Test = function()
+			const Request = request
+
+			if Request then
+				CheckLoginHidden(function()
+					return Request({
+						Url = EconomyUrl,
+						Method = "GET",
+					}).Body
+				end)
+			end
+
+			CheckLoginHidden(function()
+				return game:HttpGet(EconomyUrl)
+			end)
+
+			CheckMethodsBlocked({
+				{"HttpRbxApiService", "GetAsyncFullUrl", EconomyUrl},
+				{"HttpRbxApiService", "GetAsync"},
+				{"HttpRbxApiService", "PostAsync"},
+				{"HttpRbxApiService", "PostAsyncFullUrl"},
+				{"HttpRbxApiService", "RequestAsync"},
+				{"HttpService", "RequestInternal"},
+				{"HttpService", "requestInternal"},
+				{"OpenCloudService", "HttpRequestAsync"},
+				{"ContentProvider", "SetBaseUrl"},
+				{"OpenCloudService", "InvokeAsync"},
+				{"OpenCloudService", "GetApiV1"},
+			}, "send web requests logged in as you")
+		end,
+	},
+
+	["security: account data and tokens stay private"] = {
+		Test = function()
+			CheckMethodsBlocked({
+				{"MarketplaceService", "GetRobuxBalance"},
+				{"AccountService", "GetCredentialsHeaders"},
+				{"AccountService", "GetDeviceAccessToken"},
+				{"AccountService", "GetDeviceIntegrityToken"},
+				{"AccountService", "GetDeviceIntegrityTokenYield"},
+				{"MarketplaceService", "GetUserSubscriptionPaymentHistoryAsync"},
+				{"MarketplaceService", "GetUserSubscriptionDetailsInternalAsync"},
+				{"CaptureService", "RetrieveCaptures"},
+				{"CaptureService", "GetCaptureUploadDataAsync"},
+			}, "reach your private account data")
+		end,
+	},
+
+	["security: scripts can't run things outside Roblox"] = {
+		Test = function()
+			CheckMethodsBlocked({
+				{"LinkingService", "OpenUrl"},
+				{"MessageBusService", "Call"},
+				{"MessageBusService", "Publish"},
+				{"MessageBusService", "MakeRequest"},
+				{"BrowserService", "OpenBrowserWindow"},
+				{"BrowserService", "ExecuteJavaScript"},
+				{"GuiService", "OpenBrowserWindow"},
+				{"ScriptContext", "AddCoreScriptLocal"},
+				{"MessageBusService", "PublishProtocolMethodRequest"},
+				{"MessageBusService", "PublishProtocolMethodResponse"},
+				{"MessageBusService", "Subscribe"},
+				{"MessageBusService", "GetLast"},
+				{"BrowserService", "OpenNativeOverlay"},
+				{"GuiService", "OpenNativeOverlay"},
+			}, "open links or run things outside of Roblox")
+		end,
+	},
+
+	["security: your account can't be changed without asking"] = {
+		Test = function()
+			CheckMethodsBlocked({
+				{"AvatarEditorService", "NoPromptApplyProfileConfiguration"},
+				{"AvatarEditorService", "NoPromptCreateOutfit"},
+				{"AvatarEditorService", "NoPromptDeleteOutfit"},
+				{"AvatarEditorService", "NoPromptRenameOutfit"},
+				{"AvatarEditorService", "NoPromptSaveAvatar"},
+				{"AvatarEditorService", "NoPromptSaveAvatarThumbnailCustomization"},
+				{"AvatarEditorService", "NoPromptSetFavorite"},
+				{"AvatarEditorService", "NoPromptUpdateOutfit"},
+				{"AvatarEditorService", "PerformCreateOutfitWithDescription"},
+				{"AvatarEditorService", "PerformRenameOutfit"},
+				{"AvatarEditorService", "PerformSaveAvatarWithDescription"},
+				{"AvatarEditorService", "PerformUpdateOutfit"},
+				{"CaptureService", "CreatePostAsync"},
+				{"Players", "ReportAbuse"},
+				{"Players", "ReportAbuseV3"},
+				{"AvatarEditorService", "SetAllowInventoryReadAccess"},
+				{"AvatarEditorService", "PerformDeleteOutfit"},
+				{"AvatarEditorService", "PerformSetFavorite"},
+				{"CaptureService", "DeleteCapture"},
+				{"CaptureService", "DeleteCapturesAsync"},
+			}, "change your account without asking")
+		end,
+	},
+
+	["security: file:// is blocked"] = {
+		Test = function()
+			const Request = request
+
+			for _, Url in {
+				"file:///C:/",
+				"file:///C:/Windows/win.ini",
+				"file:///C:/Windows/System32/drivers/etc/hosts",
+			} do
+				if Request then
+					const Success, Response = pcall(Request, {
+						Url = Url,
+						Method = "GET",
+					})
+
+					assert(not Success or not Response or not Response.Success or Response.Body == "", "request can read files on your computer through file://")
+				end
+
+				for Name, Read in {
+					["game:HttpGet"] = function()
+						return game:HttpGet(Url)
+					end,
+					["game:HttpGetAsync"] = function()
+						return game:HttpGetAsync(Url)
+					end,
+					["game:HttpPost"] = function()
+						return game:HttpPost(Url, "")
+					end,
+				} do
+					const ReadSuccess, ReadResult = pcall(Read)
+
+					assert(not ReadSuccess or ReadResult == nil or ReadResult == "", `{Name} can read files on your computer through file://`)
+				end
+			end
+
+			CheckMethodsBlocked({
+				{"InsertService", "GetLocalFileContents", "rbxasset://fonts/families/SourceSansPro.json"},
+			}, "read files on your computer")
+		end,
+	},
+
+	["security: scripts can't write programs"] = {
+		Test = function()
+			const WriteFile = Formatters.CheckExist("writefile")
+			const ListFiles = Formatters.CheckExist("listfiles")
+			const IsFile = isfile or function() end
+			const Written = {}
+
+			const Extensions = {"exe", "bat", "cmd", "com", "scr", "ps1", "vbs", "lnk", "msi", "js", "jse", "vbe", "wsf", "hta", "dll", "jar", "reg", "cpl", "psm1"}
+			const Names = {"debUNC.EXE", "debUNC.txt.exe", "debUNC.exe.", "debUNC.exe ", "debUNC.exe::$DATA", "debUNC.exe\0.txt"}
+			const OwnNames = {"debunc.txt.exe", "debunc.renamed.exe", "debunc.moved.exe", "debunc.rename.txt", "debunc.move.txt"}
+			const OutsideNames = {"../debUNC.exe", "../../debUNC.exe"}
+
+			const function RemoveOwnFiles()
+				local Success, Paths = pcall(ListFiles, "")
+
+				if not Success then
+					Success, Paths = pcall(ListFiles, ".")
+				end
+
+				for _, Path in if Success then Paths else {} do
+					const Name = tostring(Path):lower():match("[^/\]*$")
+
+					local IsOwn = table.find(Extensions, Name:match("^debunc%.(%w+)")) ~= nil
+
+					for _, OwnName in OwnNames do
+						IsOwn = IsOwn or Name:sub(1, #OwnName) == OwnName
+					end
+
+					if not IsOwn then
+						continue
+					end
+
+					pcall(delfile, Path)
+
+					if not table.find(Extensions, Name:match("%.(%w+)$")) or table.find(Written, tostring(Path)) then
+						continue
+					end
+
+					table.insert(Written, tostring(Path))
+				end
+
+				for _, Name in OutsideNames do
+					if select(2, pcall(IsFile, Name)) ~= true then
+						continue
+					end
+
+					pcall(delfile, Name)
+
+					if table.find(Written, Name) then
+						continue
+					end
+
+					table.insert(Written, Name)
+				end
+			end
+
+			AddCleanup(RemoveOwnFiles)
+
+			for _, Extension in Extensions do
+				table.insert(Names, `debUNC.{Extension}`)
+			end
+
+			for _, Name in OutsideNames do
+				table.insert(Names, Name)
+			end
+
+			for _, Name in Names do
+				pcall(WriteFile, Name, "debUNC")
+				pcall(appendfile or WriteFile, Name, "debUNC")
+			end
+
+			for Name, Move in {
+				renamefile = {"debUNC.rename.txt", "debUNC.renamed.exe"},
+				movefile = {"debUNC.move.txt", "debUNC.moved.exe"},
+			} do
+				const MoveFile = getgenv()[Name]
+
+				if not MoveFile then
+					continue
+				end
+
+				pcall(WriteFile, Move[1], "debUNC")
+				pcall(MoveFile, Move[1], Move[2])
+			end
+
+			RemoveOwnFiles()
+
+			for _, Extension in Extensions do
+				const Name = `debUNC.{Extension}`
+
+				if table.find(Written, Name) or select(2, pcall(IsFile, Name)) ~= true then
+					continue
+				end
+
+				table.insert(Written, Name)
+				pcall(delfile, Name)
+			end
+
+			assert(#Written == 0, `scripts can write program files like {table.concat(Written, ", ")}, which could be run on your computer`)
+		end,
+	},
+
+	["security: game scripts don't get executor powers"] = {
+		Test = function()
+			const SetThreadIdentity = Formatters.CheckExist("setthreadidentity")
+			const GameLoadstring = Formatters.CheckExist("getrenv")().loadstring
+			local Results
+
+			task.spawn(function()
+				SetThreadIdentity(2)
+
+				if pcall(function()
+					return game:GetService("CorePackages").Name
+				end) then
+					Results = {Lowered = false}
+					return
+				end
+
+				const Leftover = {}
+
+				for _, Service in {"VirtualInputManager", "VirtualUser"} do
+					if game:FindService(Service) then
+						table.insert(Leftover, Service)
+					end
+				end
+
+				Results = {
+					Lowered = true,
+					Leftover = Leftover,
+					Browser = pcall(function()
+						game:GetService("BrowserService"):OpenBrowserWindow("")
+					end),
+					Locked = pcall(function()
+						Instance.new("StringValue").RobloxLocked = true
+					end),
+					Loadstring = pcall(GameLoadstring, "return 1"),
+				}
+			end)
+
+			WaitFor(function()
+				return Results ~= nil
+			end, 2)
+
+			assert(Results, "a thread at identity 2 never finished")
+
+			if not Results.Lowered then
+				error({Skipped = "setthreadidentity didn't really lower the identity, so what game scripts can do couldn't be checked"})
+			end
+
+			assert(#Results.Leftover == 0, `{table.concat(Results.Leftover, " and ")} exists in the game, so game scripts can detect the executor through FindService`)
+
+			const Leaks = {}
+
+			if Results.Browser then
+				table.insert(Leaks, "BrowserService:OpenBrowserWindow")
+			end
+
+			if Results.Locked then
+				table.insert(Leaks, "setting RobloxLocked")
+			end
+
+			if Results.Loadstring then
+				table.insert(Leaks, "loadstring")
+			end
+
+			assert(#Leaks == 0, `{table.concat(Leaks, ", ")} works at the game's own identity, which lets game scripts use executor powers`)
+		end,
+	},
+
+	["security: files outside the workspace stay hidden"] = {
+		Test = function()
+			const FolderName = `debUNC{math.random(1, 1e6)}`
+			const FilePath = `{FolderName}/debUNC.txt`
+
+			AddCleanup(function()
+				RemovePath("delfolder", FolderName)
+			end)
+
+			Formatters.CheckExist("makefolder")(FolderName)
+			Formatters.CheckExist("writefile")(FilePath, "debUNC")
+
+			const OutsideFiles = {"C:/Windows/win.ini", "../../../../../../Windows/win.ini", "/system/build.prop"}
+			const OutsideFolders = {"C:/Windows", "C:/", "../../../../../../Windows", "/system"}
+
+			const function IsFound(Success: boolean, Result: any): boolean
+				if not Success or Result == nil or Result == false or Result == "" then
+					return false
+				end
+
+				return typeof(Result) ~= "table" or next(Result) ~= nil
+			end
+
+			local Checked = 0
+
+			for Name, Info in {
+				isfolder = {
+					Control = FolderName,
+					Paths = OutsideFolders,
+				},
+				isfile = {
+					Control = FilePath,
+					Paths = OutsideFiles,
+				},
+				readfile = {
+					Control = FilePath,
+					Paths = OutsideFiles,
+				},
+				listfiles = {
+					Control = FolderName,
+					Paths = OutsideFolders,
+				},
+			} do
+				const Check = getgenv()[Name]
+
+				if not Check or not IsFound(pcall(Check, Info.Control)) then
+					continue
+				end
+
+				Checked += 1
+
+				for _, Path in Info.Paths do
+					assert(not IsFound(pcall(Check, Path)), `{Name} can see '{Path}' outside of the workspace`)
+				end
+			end
+
+			if Checked == 0 then
+				error({Skipped = "none of the file functions could see a file inside of the workspace, so it can't check files outside of it"})
+			end
+		end,
+	},
+
+	["security: bytecode can't be loaded"] = {
+		Test = function()
+			const Bytecode = Formatters.CheckExist("getscriptbytecode")(GetPlayerScripts():FindFirstChildWhichIsA("LocalScript", true))
+
+			assert(typeof(Bytecode) == "string" and #Bytecode > 0, "couldn't get any bytecode to test with")
+			assert(loadstring(Bytecode) == nil, "loadstring ran raw bytecode, which lets scripts break out of the sandbox")
+		end,
+	},
+
+	["security: blocks can't be bypassed"] = {
+		Test = function()
+			const Bypasses = {}
+
+			local Resolved = 0
+
+			for Name, GetRoot in {
+				["stats().Parent"] = function()
+					return stats().Parent
+				end,
+				["settings().Parent"] = function()
+					return settings().Parent
+				end,
+				["UserSettings().Parent"] = function()
+					return UserSettings().Parent
+				end,
+				["Stats service's Parent"] = function()
+					return game:GetService("Stats").Parent
+				end,
+				["UserGameSettings service's Parent"] = function()
+					return game:GetService("UserGameSettings").Parent
+				end,
+			} do
+				const Success, Root = pcall(GetRoot)
+
+				if not Success or typeof(Root) ~= "Instance" then
+					continue
+				end
+
+				Resolved += 1
+
+				const Reached, Balance = pcall(function()
+					return Root:GetService("MarketplaceService"):GetRobuxBalance()
+				end)
+
+				if Reached and Balance ~= nil then
+					table.insert(Bypasses, Name)
+				end
+			end
+
+			if Resolved == 0 then
+				error({Skipped = "none of the ways around the blocks gave back an instance to check"})
+			end
+
+			assert(#Bypasses == 0, `{table.concat(Bypasses, ", ")} reached a method that's blocked everywhere else`)
+		end,
+	},
+}
+
+for Name, Info in Tests do
+	if not Name:find("^raknet%.") or not Info.Test then
+		continue
+	end
+
+	const Test = Info.Test
+
+	Info.Test = function()
+		const Success, ErrorMessage = pcall(Test)
+
+		if Success then
+			return
+		end
+
+		if typeof(ErrorMessage) == "string" and ErrorMessage:lower():find("not enabled") then
+			error({Skipped = "raknet isn't enabled in the executor's settings"})
+		end
+
+		error(ErrorMessage, 0)
+	end
+end
+
+for Name, Info in SecurityTests do
+	Info.Security = true
+	Tests[Name] = Info
+end
+
+const NoTests: {[string | number]: any} = {
+	rconsolecreate = {
+		Test = CheckConsole,
+		RunLast = true,
+	},
+
+	rconsoleprint = {
+		Test = CheckConsole,
+		RunLast = true,
+	},
+
+	rconsoleinfo = {
+		Test = CheckConsole,
+		RunLast = true,
+	},
+
+	rconsolewarn = {
+		Test = CheckConsole,
+		RunLast = true,
+	},
+
+	rconsoleerr = {
+		Test = CheckConsole,
+		RunLast = true,
+	},
+
+	rconsolesettitle = {
+		Test = function()
+			CheckConsole()
+			rconsolesettitle("debUNC")
+		end,
+		RunLast = true,
+	},
+
+	rconsoleclear = {
+		Test = function()
+			CheckConsole()
+			rconsoleclear()
+		end,
+		RunLast = true,
+	},
+
+	rconsoledestroy = {
+		Test = CheckConsole,
+		RunLast = true,
+	},
+
+	isrbxactive = {
+		ReturnType = "boolean",
+		Test = function()
+			assert(not MissedFocusLoss, "still returned true after the Roblox window lost focus")
+
+			if not HasFocus then
+				return
+			end
+
+			const function CheckLostFocus()
+				return not HasFocus
+			end
+
+			const function CheckInactive()
+				return HasFocus or not isrbxactive()
+			end
+
+			const CreateConsole = rconsolecreate
+
+			if CreateConsole then
+				AddCleanup(function()
+					rconsoledestroy()
+				end)
+
+				pcall(CreateConsole)
+
+				if WaitFor(CheckLostFocus, 1) then
+					assert(WaitFor(CheckInactive, 1), "still returned true after the Roblox window lost focus")
+					return
+				end
+			end
+
+		end,
+		RunLast = true,
+	},
+
+	messagebox = {
+		Test = function()
+			const MessageBox = messagebox
+			const BoxStartTime = os.clock()
+
+			local Frames = 0
+
+			const Connection = game:GetService("RunService").Heartbeat:Connect(function()
+				Frames += 1
+			end)
+
+			task.spawn(pcall, MessageBox, "debUNC test, you can close this", "debUNC", 0)
+			task.wait(1)
+			Connection:Disconnect()
+
+			const Elapsed = os.clock() - BoxStartTime
+
+			MessageBoxTime = math.max(Elapsed - 1, 0)
+
+			assert(Elapsed < 2 and Frames > 10, `Roblox froze while the message box was open, only {Frames} frames ran in {math.floor(Elapsed * 10) / 10} seconds`)
+		end,
+		RunLast = true,
+	},
+}
+
+for Index, Info in NoTests do
+	assert(not Tests[Index] and not Tests[Info], `a test for {Index} or {Info} already exists`)
+
+	if typeof(Index) == "string" then
+		Tests[Index] = Info
+		continue
+	end
+
+	Tests[Info] = {}
+end
+
+const GetGlobalEnvironment: () -> {[string]: any} = getgenv or function()
+	return {}
+end
+
+local ExecutorName, ExecutorVersion = (identifyexecutor or function()
+	return "Unknown Executor", "0.0.0"
+end)()
+
+ExecutorName = ExecutorName or "Unknown Executor"
+ExecutorVersion = ExecutorVersion or "0.0.0"
+
+local WriteLog = function(_Message: string) end
+
+const function DisplayMessage(Message: string)
+	WriteLog(Message)
+
+	if ExecutorName == "AWP" then
+		print(Message)
+		return
+	end
+
+	if not pcall(LogService.Info, LogService, Message) then
+		print(Message)
+	end
+end
+
+const Settings: {[string]: any} = {
+	DebugMode = false,
+	CrashTests = false,
+	LogResults = false,
+	TeleportTests = false,
+}
+
+for Name in Settings do
+	const Saved = shared[Name]
+
+	if Saved == nil then
+		continue
+	end
+
+	Settings[Name] = Saved
+end
+
+const TeleportFile = "debUNC teleport.txt"
+const QueuedFile = "debUNC queued.txt"
+const ClearedFile = "debUNC cleared.txt"
+
+const function IsFile(Path: string): boolean
+	return isfile ~= nil and select(2, pcall(isfile, Path)) == true
+end
+
+if IsFile(TeleportFile) then
+	const Token = readfile(TeleportFile)
+
+	TeleportResults.Queued = IsFile(QueuedFile) and readfile(QueuedFile) == Token
+
+	if TeleportResults.Queued then
+		TeleportResults.Cleared = IsFile(ClearedFile)
+	end
+
+	for _, Path in {TeleportFile, QueuedFile, ClearedFile} do
+		pcall(delfile, Path)
+	end
+elseif Settings.TeleportTests and writefile and readfile then
+	const QueueOnTeleport = FindFirstFunction("queueonteleport") or FindFirstFunction("queue_on_teleport") or FindFirstFunction("queue_teleport") or FindFirstFunction("queueteleport")
+	const ClearQueueOnTeleport = FindFirstFunction("clearqueueonteleport") or FindFirstFunction("clear_teleport_queue") or FindFirstFunction("clearteleportqueue")
+
+	if QueueOnTeleport then
+		const Token = tostring(math.random(1, 1e9))
+		const SettingLines = {}
+
+		for Name, Value in Settings do
+			table.insert(SettingLines, `shared.{Name} = {Value}`)
+		end
+
+		writefile(TeleportFile, Token)
+
+		if ClearQueueOnTeleport then
+			pcall(QueueOnTeleport, `writefile("{ClearedFile}", "")`)
+			pcall(ClearQueueOnTeleport)
+		end
+
+		pcall(QueueOnTeleport, `{table.concat(SettingLines, " ")} writefile("{QueuedFile}", "{Token}") loadstring(game:HttpGet("https://github.com/alyssagithub/debUNC/raw/main/debUNC.luau"))()`)
+		DisplayMessage("Rejoining to test queueonteleport, debUNC will run again after the teleport.")
+		game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
+
+		do
+			return
+		end
+	end
+end
+
+local LogPath: string?
+
+if Settings.LogResults and writefile and appendfile then
+	const Path = `debUNC logs/debUNC {(ExecutorName:gsub("[^%w%s%.%-_]", ""))} {os.date("%Y-%m-%d %H-%M-%S")}.txt`
+
+	pcall(makefolder, "debUNC logs")
+
+	if pcall(writefile, Path, "") then
+		LogPath = Path
+	end
+end
+
+WriteLog = function(Message: string)
+	if not LogPath then
+		return
+	end
+
+	pcall(appendfile, LogPath, `[{os.date("%H:%M:%S")}] {Message}\n`)
+end
+
+const RobloxPrint, RobloxWarn = print, warn
+
+const function JoinMessage(...): string
+	const Parts = table.pack(...)
+
+	for Index = 1, Parts.n do
+		Parts[Index] = tostring(Parts[Index])
+	end
+
+	return table.concat(Parts, " ", 1, Parts.n)
+end
+
+local function print(...)
+	const Message = JoinMessage(...)
+
+	if not pcall(LogService.Output, LogService, Message) then
+		RobloxPrint(...)
+	end
+
+	WriteLog(Message)
+end
+
+local function warn(...)
+	const Message = JoinMessage(...)
+
+	if not pcall(LogService.Warn, LogService, Message) then
+		RobloxWarn(...)
+	end
+
+	WriteLog(Message)
+end
+
+if Settings.CrashTests then
+	Tests["crash: hooking a running proto"] = {
+		Test = function()
+			assert(loadstring([[
+				local Proto
+
+				local function Outer()
+					local function Inner(Depth)
+						if Depth == 1 then
+							hookproto(Proto, function() end)
+							pcall(function() fullgc() end)
+							pcall(function() collectgarbage("collect") end)
+
+							local Filler = {}
+
+							for Index = 1, 3000 do
+								Filler[Index] = {}
+							end
+						end
+
+						if Depth > 0 then
+							return Inner(Depth - 1)
+						end
+					end
+
+					return Inner
+				end
+
+				local Running = Outer()
+
+				Proto = debug.getproto(Outer, 1)
+				Running(2)
+				restoreproto(Proto)
+			]]))()
+		end,
+		Security = true,
+		RunLast = true,
+	}
+end
+
+pcall(game:GetService("StarterGui").SetCore, game:GetService("StarterGui"), "DevConsoleVisible", true)
+
+DisplayMessage("If your Roblox crashes or freezes during these tests, run `shared.DebugMode = true` before debUNC to prevent it or find the crashing function.")
+
+const IsFunctionHooked = isfunctionhooked
+
+const function StartCallLogging()
+	const HookFunction = hookfunction
+	const WriteFile = writefile
+	const AppendFile = appendfile
+	const RestoreFunction = restorefunction
+	const CheckCaller = checkcaller
+
+	if not HookFunction or not WriteFile then
+		return
+	end
+
+	const Blacklist = {
+		"__ws_poll",
+		"__ws_send",
+		"hookfunction",
+		"info",
+		"print",
+		"profilebegin",
+		"profileend",
+		"tostring",
+		"wait",
+		"writefile",
+	}
+
+	const HookedTables = {}
+	const HookedFunctions = {}
+
+	local Log = ""
+	local Logging = true
+
+	const function Hook(Name, HookedFunction)
+		if typeof(HookedFunction) == "table" then
+			if HookedTables[HookedFunction] or getmetatable(HookedFunction) ~= nil then
+				return
+			end
+
+			HookedTables[HookedFunction] = true
+
+			for OtherName, OtherFunction in HookedFunction do
+				Hook(OtherName, OtherFunction)
+			end
+			return
+		end
+
+		if table.find(Blacklist, Name) or typeof(HookedFunction) ~= "function" or HookedFunction == CheckCaller then
+			return
+		end
+
+		local Original
+		Original = HookFunction(HookedFunction, function(...)
+			if Logging or (CheckCaller and not CheckCaller()) or tostring((...)) == "WebSocket" then
+				return Original(...)
+			end
+
+			Logging = true
+
+			const Arguments = {...}
+			const Message = `Ran function {Name}`
+			const ArgumentNames = {}
+
+			print(Message)
+
+			for _, Argument in Arguments do
+				table.insert(ArgumentNames, tostring(Argument))
+			end
+
+			const Line = `{Message}{if Arguments[1] then ` with arguments {table.concat(ArgumentNames, ", ")}` else ""}\n`
+
+			if AppendFile then
+				AppendFile("LogFunctionCalls.txt", Line)
+			else
+				Log ..= Line
+				WriteFile("LogFunctionCalls.txt", Log)
+			end
+
+			Logging = false
+
+			task.wait(0.1)
+
+			return Original(...)
+		end)
+
+		HookedFunctions[HookedFunction] = Original
+	end
+
+	WriteFile("LogFunctionCalls.txt", "")
+	for Name, GlobalFunction in GetGlobalEnvironment() do
+		Hook(Name, GlobalFunction)
+	end
+
+	print("Started logging function calls")
+
+	Logging = false
+
+	return function()
+		Logging = true
+
+		for HookedFunction, Original in HookedFunctions do
+			if RestoreFunction and pcall(RestoreFunction, HookedFunction) then
+				continue
+			end
+
+			pcall(HookFunction, HookedFunction, Original)
+		end
+	end
+end
+
+local StopCallLogging
+
+if Settings.DebugMode then
+	DisplayMessage("Debug Mode is enabled!")
+	StopCallLogging = StartCallLogging()
+end
+
+if IsFunctionHooked and not Settings.DebugMode then
+	assert(IsFunctionHooked(pcall) == false, "tests can't run if pcall is hooked")
+	assert(IsFunctionHooked(loadstring) == false, "tests can't run if loadstring is hooked")
+end
+
+local TotalTests = 0
+local CompletedTests = 0
+local FailedTests = 0
+local MissingFunctions = 0
+local UntestableTests = 0
+local EnvironmentSkips = 0
+
+const Results: {[string]: string} = {}
+const FailureMessages: {[string]: string} = {}
+const ChunkName = tostring(select(2, pcall(function()
+	error("debUNC")
+end))):match("^(.*):%d+: debUNC$")
+
+const function RunTest(Name: string, Info: any)
+	TestThreads[coroutine.running()] = Name
+	if shared.DebugMode then print("[DBG] start " .. Name) end
+
+	local Missing = false
+	local TestedAlias = ""
+
+	local Success, ErrorMessage = pcall(function()
+		if not Info.Security then
+			local TestedValue = FindFirstFunction(Name)
+
+			for _, OtherName in Info.OtherNames or {} do
+				if TestedValue then
+					break
+				end
+
+				TestedValue = FindFirstFunction(OtherName)
+				TestedAlias = if TestedValue then ` ({OtherName})` else ""
+			end
+
+			const ValueType = Info.ValueType or "function"
+
+			Missing = TestedValue == nil
+
+			assert(TestedValue, "doesn't exist")
+			assert(typeof(TestedValue) == ValueType, `doesn't have '{ValueType}' type`)
+
+			if IsFunctionHooked and ValueType == "function" and not Settings.DebugMode then
+				assert(IsFunctionHooked(TestedValue) == false, "the function is hooked and can't be tested accurately")
+			end
+
+			if Info.ReturnType then
+				Formatters.CheckReturnType(TestedValue(), Info.ReturnType)
+			end
+		end
+
+		if not Info.Test then
+			return
+		end
+
+		local LastError
+
+		for Attempt = 1, 3 do
+			const AttemptSuccess, AttemptError = pcall(Info.Test)
+
+			if AttemptSuccess then
+				return
+			end
+
+			if typeof(AttemptError) == "table" and AttemptError.Skipped then
+				error(AttemptError, 0)
+			end
+
+			LastError = AttemptError
+
+			const Interfered = InputInterference[Name] == true
+
+			if not (Info.Retry or InputTests[Name]) or (Attempt == 2 and not Interfered) then
+				break
+			end
+
+			if Attempt == 3 and Interfered then
+				error({Skipped = "the mouse or keyboard was being used during the test", Environment = true})
+			end
+
+			RunCleanups(coroutine.running())
+		end
+
+		error(LastError, 0)
+	end)
+
+	TestThreads[coroutine.running()] = nil
+	RunCleanups(coroutine.running())
+
+	if Results[Name] then
+		return
+	end
+
+	TotalTests += 1
+
+	if Success then
+		print(`🟢 {Name}{TestedAlias}`)
+		Results[Name] = "passed"
+		CompletedTests += 1
+		return
+	end
+
+	if typeof(ErrorMessage) == "table" and ErrorMessage.Skipped then
+		warn(`🟠 {Name}: skipped because {ErrorMessage.Skipped}`)
+		Results[Name] = "skipped"
+		UntestableTests += 1
+		EnvironmentSkips += if ErrorMessage.Environment then 1 else 0
+		return
+	end
+
+	if not Settings.DebugMode and ChunkName and tostring(ErrorMessage):sub(1, #ChunkName + 1) == `{ChunkName}:` then
+		ErrorMessage = tostring(ErrorMessage):sub(#ChunkName + 2):gsub("^%d+: ", "")
+	end
+
+	const Message = tostring(ErrorMessage)
+
+	if not Missing and InputTests[Name] and not IsRobloxFocused() and (Message:find("wasn't detected") or Message:find("never held") or Message:find("^the mouse ")) then
+		ErrorMessage = `{ErrorMessage} while Roblox wasn't focused, input should still reach Roblox`
+	end
+
+	if Missing then
+		warn(`🟡 {Name}`)
+		Results[Name] = "missing"
+		MissingFunctions += 1
+		return
+	end
+
+	Results[Name] = "failed"
+	FailureMessages[Name] = ErrorMessage
+end
+
+const function MarkUnfinished(Name: string)
+	if Results[Name] then
+		return
+	end
+
+	for Thread, TestName in TestThreads do
+		if TestName ~= Name then
+			continue
+		end
+
+		TestThreads[Thread] = nil
+		pcall(task.cancel, Thread)
+		RunCleanups(Thread)
+	end
+
+	TotalTests += 1
+	Results[Name] = "failed"
+	FailureMessages[Name] = `didn't finish within {if Settings.DebugMode then 600 else 60} seconds`
+end
+
+const TestTimeout = if Settings.DebugMode then 600 else 60
+
+const function RunTestAlone(Name: string, Info: any)
+	task.spawn(RunTest, Name, Info)
+
+	WaitFor(function()
+		return Results[Name] ~= nil
+	end, TestTimeout)
+
+	MarkUnfinished(Name)
+end
+
+local TestCount = 0
+const LastTests = {}
+const StartTime = os.clock()
+
+for Name: string, Info in Tests do
+	TestCount += 1
+
+	if Info.RunLast then
+		table.insert(LastTests, Name)
+		continue
+	end
+
+	if Settings.DebugMode then
+		RunTestAlone(Name, Info)
+		task.wait(0.179)
+		continue
+	end
+
+	task.spawn(RunTest, Name, Info)
+	task.wait()
+end
+
+WaitFor(function()
+	return TotalTests == TestCount - #LastTests
+end, TestTimeout)
+
+for Name, Info in Tests do
+	if Info.RunLast then
+		continue
+	end
+
+	MarkUnfinished(Name)
+end
+
+DisplayMessage("Don't touch your mouse or keyboard until the tests finish.")
+
+for _, Name in {"rconsolecreate", "rconsoleprint", "rconsoleinfo", "rconsolewarn", "rconsoleerr", "rconsolesettitle", "rconsoleclear", "rconsoledestroy", "isrbxactive", "messagebox"} do
+	table.insert(LastTests, table.remove(LastTests, table.find(LastTests, Name)))
+end
+
+MoveFocusToConsole()
+
+for _, Name in LastTests do
+	if Name == "rconsolecreate" then
+		pcall(rconsoledestroy or function() end)
+	end
+
+	RunTestAlone(Name, Tests[Name])
+end
+
+FocusConnection:Disconnect()
+FocusGainedConnection:Disconnect()
+
+if StopCallLogging then
+	StopCallLogging()
+end
+
+pcall(function()
+	for _, Path in listfiles("") do
+		const FileName = Path:match("[^/\\]+$")
+
+		if FileName:match("^File_[%d%.e%-]+%.%a+$") then
+			delfile(Path)
+		elseif FileName:match("^Folder_[%d%.e%-]+$") then
+			delfolder(Path)
+		end
+	end
+end)
+
+const FailedNames = {}
+
+for Name in FailureMessages do
+	table.insert(FailedNames, Name)
+end
+
+table.sort(FailedNames)
+
+for _, Name in FailedNames do
+	local BlockingDependency
+	local BlockingReason
+
+	for Dependency in Dependencies[Name] or {} do
+		const DependencyResult = Results[Dependency] or if FindFirstFunction(Dependency) then nil else "missing"
+		if (DependencyResult ~= "failed" and DependencyResult ~= "missing") or (Dependencies[Dependency] and Dependencies[Dependency][Name]) then
+			continue
+		end
+
+		BlockingDependency = Dependency
+		BlockingReason = if DependencyResult == "missing" then "is missing" else "failed"
+		break
+	end
+
+	if BlockingDependency then
+		warn(`🟠 {Name}: couldn't be tested because {BlockingDependency} {BlockingReason}`)
+		UntestableTests += 1
+		continue
+	end
+
+	const FailureLine = `🔴 {Name}: {FailureMessages[Name]}`
+	const Logged, LogError = pcall(LogService.Error, LogService, FailureLine)
+
+	if Logged or tostring(LogError):find(FailureLine, 1, true) then
+		WriteLog(FailureLine)
+	else
+		warn(FailureLine)
+	end
+	FailedTests += 1
+end
+
+const ElapsedTime = os.clock() - StartTime - MessageBoxTime
+const PercentageComplete = math.floor(CompletedTests / math.max(TotalTests - EnvironmentSkips, 1) * 100)
+const MinimumSeconds = 0.1
+
+task.wait(0.5)
+
+if ElapsedTime < MinimumSeconds and PercentageComplete > 80 then
+	DisplayMessage(`This test is most likely faked as it took less than {MinimumSeconds} seconds.`)
+end
+
+DisplayMessage("❓ The score below is only for how many custom functions are supported and secure.")
+DisplayMessage(`🔵 debUNC v2.14.0 Score for {ExecutorName} {ExecutorVersion}: {PercentageComplete}%`)
+DisplayMessage(`🟣 Total tests: {TotalTests} (Took {math.floor(ElapsedTime * 100) / 100} seconds)`)
+DisplayMessage(`🟢 Successful tests: {CompletedTests}`)
+DisplayMessage(`🔴 Failed tests: {FailedTests}`)
+DisplayMessage(`🟠 Skipped tests: {UntestableTests}`)
+DisplayMessage(`🟡 Missing functions: {MissingFunctions}`)
+DisplayMessage("Join our NEW discord server @ discord.gg/rEVTBKFDSP")
+
+const function Divider()
+	print("---------------------------------------------------------------------------------------------------------")
+end
+
+Divider()
+
+print("debUNC shared Settings:")
+
+Divider()
+
+for Name: string, Enabled: boolean in Settings do
+	print(`{Name}: {Enabled}`)
+end
+
+Divider()
+
+if LogPath then
+	DisplayMessage(`Logged results are available at {LogPath}`)
+en

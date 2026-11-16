@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // Shim: provides the old Renderer::AddConsoleLog signature
 // that TPHandler.hpp and task_scheduler.cpp still reference.
@@ -14,8 +14,10 @@ namespace Renderer
     {
         char buf[1024];
         snprintf(buf, sizeof(buf), ("[%s] %s: %s"), level, source, message);
+#ifdef _DEBUG
         OutputDebugStringA(buf);
         OutputDebugStringA(("\n"));
+#endif
         log_mgr.add_log(buf);
     }
 
