@@ -45,6 +45,8 @@ namespace Closures
         Environment->make_global(L, "comparefunction", Closures::compareclosures, funcnameinc++);
       Environment->make_global(L, "hooksignal", Closures::hooksignal, funcnameinc++);
         Environment->make_global(L, "restoresignal", Closures::restoresignal, funcnameinc++);
+        Environment->make_global(L, "issignalhooked", Closures::issignalhooked, funcnameinc++);
+        Environment->make_global(L, "is_signal_hooked", Closures::issignalhooked, funcnameinc++);
        Environment->make_global(L, "setstackhidden", Closures::setstackhidden, funcnameinc++);
         Environment->make_global(L, "sethiddenstack", Closures::setstackhidden, funcnameinc++);
         Environment->make_global(L, "set_stack_hidden", Closures::setstackhidden, funcnameinc++);

@@ -1907,6 +1907,17 @@ namespace Closures
     // them and connects the callback in their place. restoresignal drops the
     // callback and reconnects the original handlers.
     // ------------------------------------------------------------------
+    // issignalhooked(signal) -> boolean. Hooked signals live in
+    // SignalRecords, keyed exactly as hooksignal/restoresignal key them.
+    inline int issignalhooked(lua_State* L)
+    {
+        luaL_checkany(L, 1);
+
+        void* key = SignalKey(L, 1);
+        lua_pushboolean(L, (key && SignalRecords.find(key) != SignalRecords.end()) ? 1 : 0);
+        return 1;
+    }
+
     inline int restoresignal(lua_State* L)
     {
         
