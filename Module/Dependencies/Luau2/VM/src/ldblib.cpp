@@ -53,6 +53,11 @@ static int db_info(lua_State* L)
 
     const char* options = luaL_checkstring(L, arg + 2);
 
+    // frames hidden by setstackhidden are invisible to every level query,
+    // including the native function captured before the hiding took place.
+    if (level >= 0 && lua_frameishidden(L1, level))
+        return 0;
+
     lua_Debug ar;
     if (!lua_getinfo(L1, level, options, &ar))
         return 0;

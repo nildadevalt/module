@@ -75,6 +75,15 @@ void luaL_where(lua_State* L, int level)
 {
     lua_Debug ar;
 
+    // a frame hidden by setstackhidden reports no source position, so
+    // error()/assert() raised from it produce the bare message.
+    if (level >= 0 && lua_frameishidden(L, level))
+    {
+        lua_rawcheckstack(L, 1);
+        lua_pushliteral(L, "");
+        return;
+    }
+
     if (lua_getinfo(L, level, "sl", &ar) && ar.currentline > 0)
     {
         lua_pushfstring(L, "%s:%d: ", ar.short_src, ar.currentline);

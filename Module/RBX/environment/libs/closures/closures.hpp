@@ -2359,8 +2359,9 @@ namespace Closures
 
             if (hidden)
             {
-                ensure_debug_info_hook(L);
-                ensure_debug_traceback_hook(L);
+                // No library wrappers: lua_getinfo / luaL_traceback /
+                // luaL_where consult the frame filter inside the VM, so a
+                // captured reference to debug.info is filtered too.
                 HideClosure(L, cl);
                 HiddenLevels.push_back({ L, level, cl });
             }
@@ -2381,11 +2382,7 @@ namespace Closures
         Closure* cl = clvalue(index2addr(L, 1));
 
         if (hidden)
-        {
-            ensure_debug_info_hook(L);
-            ensure_debug_traceback_hook(L);
             HideClosure(L, cl);
-        }
         else
             UnhideClosure(L, cl);
 

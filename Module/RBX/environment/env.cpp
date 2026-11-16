@@ -405,7 +405,92 @@ end
 
 
  
+    // Injected last so it runs after the libraries above exist: prints a
+    // one-line banner whenever the module (re)initialises on a place, so the
+    // console shows the executor is alive without needing to run a script.
+    std::string bannerScript = R"LUA(
+pcall(task.defer, function()
+    local function say(msg)
+        local out = (typeof(print) == "function") and print or warn
+        pcall(out, msg)
+    end
+    say("Module are working")
+end)
+)LUA";
+
+    // setstackhidden cannot be enforced by patching the VM here: the script
+    // state is Roblox's own Luau, so our fork's frame filter is never
+    // consulted. Wrap the three library functions that expose frames and
+    // decide visibility from a Lua-side set instead. Installed eagerly (not on
+    // first setstackhidden) so a reference captured before hiding - which is
+    // exactly what a probe does - is still the wrapper.
+    std::string hiddenFramesScript = R"LUA(
+pcall(function()
+    local raw_info, raw_tb = debug.info, debug.traceback
+    local ishidden = isstackhidden
+
+    -- Identity check only: isstackhidden takes a *function*, so it is immune
+    -- to the frame shifts that make level-based queries unreliable from
+    -- inside a wrapper.
+    local function hid(fn)
+        if fn == nil then return false end
+        local ok, v = pcall(ishidden, fn)
+        return ok and v == true
+    end
+
+    local function info(level, opts)
+        if typeof(level) ~= "number" or level < 0 then return raw_info(level, opts) end
+        if level == 0 then return raw_info(0, opts) end
+        local seen = 0
+        for a = 1, 250 do
+            local fn = raw_info(a, "f")
+            if fn == nil then return nil end
+            if not hid(fn) then
+                seen = seen + 1
+                if seen == level then return raw_info(a, opts) end
+            end
+        end
+        return nil
+    end
+
+    local function traceback(msg, level)
+        local any = false
+        for a = 1, 250 do
+            local fn = raw_info(a, "f")
+            if fn == nil then break end
+            if hid(fn) then any = true break end
+        end
+        if not any then return raw_tb(msg, level) end
+        local out = typeof(msg) == "string" and (msg .. "
+") or ""
+        for a = 1, 250 do
+            local fn = raw_info(a, "f")
+            if fn == nil then break end
+            if not hid(fn) then
+                local pos = raw_info(a, "sl")
+                if pos and pos ~= "" then out = out .. pos .. "
+" end
+            end
+        end
+        return out
+    end
+
+    -- debug is read-only in the game env; flip it just long enough to swap
+    -- the entries. setreadonly returns nothing, so always restore to true.
+    pcall(function() setreadonly(debug, false) end)
+    debug.info = info
+    debug.traceback = traceback
+    pcall(function() setreadonly(debug, true) end)
+
+    -- 'error' is intentionally left alone: it would have to walk the whole
+    -- stack for every raise, and skipping the source position is not worth
+    -- that cost on the hot path.
+end)
+)LUA";
+
     task_scheduler::RequestExecution(signal);
     task_scheduler::RequestExecution(websocketScript);
+    task_scheduler::RequestExecution(bannerScript);
+    task_scheduler::RequestExecution(hiddenFramesScript);
     ApplyLuauFlags();
 }
