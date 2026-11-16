@@ -52,3 +52,4 @@ UI/
 # OS
 Thumbs.db
 .DS_Store
+.tmp_lvr/
