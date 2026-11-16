@@ -1851,56 +1851,92 @@ namespace Closures
     inline int SignalDispatcher(lua_State* L)
     {
         const int nargs = lua_gettop(L);
+        lua_rawcheckstack(L, nargs + 24);
 
         lua_pushvalue(L, lua_upvalueindex(1));
         void* key = lua_touserdata(L, -1);
         lua_pop(L, 1);
 
         auto it = key ? SignalRecords.find(key) : SignalRecords.end();
-        if (it == SignalRecords.end() || it->second.CallbackRef == LUA_NOREF)
+        if (it == SignalRecords.end() || it->second.CallbackRef == LUA_NOREF || it->second.FunctionsRef == LUA_NOREF)
         {
             lua_settop(L, 0);
             return 0;
         }
 
-        // [args...] -> [callback][args...]
-        lua_getref(L, it->second.CallbackRef);
-        if (!lua_isfunction(L, -1))
-        {
-            lua_settop(L, 0);
-            return 0;
-        }
-        lua_insert(L, 1);
-
-        // [callback][args...] -> [callback][args...][key][firedArgs]
-        lua_pushlightuserdata(L, key);
+        // Snapshot the fired arguments: the protected calls below must not be
+        // able to disturb the engine's own stack slots.
         lua_createtable(L, nargs, 0);
-        const int firedIdx = lua_gettop(L);
+        const int argsIdx = lua_gettop(L);
         for (int i = 1; i <= nargs; ++i)
         {
-            // signal args now live at 2..nargs+1 (callback occupies slot 1)
-            lua_pushvalue(L, i + 1);
-            lua_rawseti(L, firedIdx, i);
+            lua_pushvalue(L, i);
+            lua_rawseti(L, argsIdx, i);
         }
-        lua_pushcclosure(L, SignalCallOriginal, ("SignalCallOriginal"), 2);
 
-        // [callback][args...] -> [callback][callOriginal][args...]
-        lua_insert(L, 2);
+        lua_getref(L, it->second.FunctionsRef);
+        const int funcsIdx = lua_gettop(L);
+        const int count = (int)lua_objlen(L, funcsIdx);
 
-        // run the callback like any other connection: errors surface
-        // through the signal's own fire path instead of vanishing
-        if (lua_pcall(L, nargs + 1, 0, 0) != LUA_OK)
+        for (int i = 1; i <= count; ++i)
         {
-            // stack: [error] -> re-raise so Roblox reports it
-            lua_error(L);
-            return 0;
+            lua_rawgeti(L, funcsIdx, i);
+            if (!lua_isfunction(L, -1))
+            {
+                lua_pop(L, 1);
+                continue;
+            }
+            const int fnIdx = lua_gettop(L);
+
+            // info = { Function = <the connected handler>, Index = <fire order> }
+            lua_createtable(L, 0, 2);
+            const int infoIdx = lua_gettop(L);
+            lua_pushvalue(L, fnIdx);
+            lua_setfield(L, infoIdx, "Function");
+            lua_pushnumber(L, (double)(i - 1));
+            lua_setfield(L, infoIdx, "Index");
+
+            // hook(info, firedArgs...) -> truthy lets the handler run
+            lua_getref(L, it->second.CallbackRef);
+            if (!lua_isfunction(L, -1))
+            {
+                lua_pop(L, 1);
+                lua_settop(L, funcsIdx);
+                continue;
+            }
+            lua_pushvalue(L, infoIdx);
+            for (int a = 1; a <= nargs; ++a)
+                lua_rawgeti(L, argsIdx, a);
+
+            // A callback that errors must not silently swallow the handler:
+            // fall through to running the original, as the engine would.
+            bool allow = true;
+            if (lua_pcall(L, 1 + nargs, LUA_MULTRET, 0) != LUA_OK)
+            {
+                lua_pop(L, 1);
+            }
+            else
+            {
+                allow = lua_gettop(L) > infoIdx && lua_toboolean(L, -1) != 0;
+                lua_settop(L, infoIdx);
+            }
+
+            if (allow)
+            {
+                lua_pushvalue(L, fnIdx);
+                for (int a = 1; a <= nargs; ++a)
+                    lua_rawgeti(L, argsIdx, a);
+                if (lua_pcall(L, nargs, 0, 0) != LUA_OK)
+                    lua_pop(L, 1);
+            }
+
+            lua_settop(L, funcsIdx);
         }
 
         lua_settop(L, 0);
         return 0;
     }
 
-    // ------------------------------------------------------------------
     // hooksignal / restoresignal
     //
     // hooksignal snapshots every live connection on the signal, disconnects
@@ -2122,84 +2158,146 @@ namespace Closures
         return 0;
     }
 
-    inline int hooksignal(lua_State* s)
+    // True when the value at 'index' is an RBXScriptSignal userdata. The old
+    // gate wanted a table with a "Connections" field, which no caller ever
+    // passes, so hooksignal raised on every valid signal.
+    static bool IsSignalValue(lua_State* L, int index)
     {
-        if (!kv3wz(s, 1))
-            luaL_argerrorL(s, 1, ("RBXScriptSignal is required sir"));
+        if (lua_type(L, index) != LUA_TUSERDATA)
+            return false;
 
-        luaL_checktype(s, 2, LUA_TFUNCTION);
-        const int wa = 2;
+        const char* typeName = luaL_typename(L, index);
+        return typeName && strcmp(typeName, "RBXScriptSignal") == 0;
+    }
 
-        lua_pushcclosure(s, Signals::getconnectionsV2, ("getconnections"), 0);
-        lua_pushvalue(s, 1);
-        if (lua_pcall(s, 1, 1, 0) != LUA_OK)
+    // hooksignal(signal, callback)
+    //
+    // Snapshots the signal's live handlers, disconnects them and installs one
+    // dispatcher in their place. Each fire calls callback(info, ...args) once
+    // per saved handler; a truthy return lets that handler run. The record is
+    // what issignalhooked and restoresignal read.
+    inline int hooksignal(lua_State* L)
+    {
+        if (!IsSignalValue(L, 1))
+            luaL_argerrorL(L, 1, ("RBXScriptSignal is required sir"));
+
+        luaL_checktype(L, 2, LUA_TFUNCTION);
+
+        void* key = SignalKey(L, 1);
+        if (!key || SignalRecords.find(key) != SignalRecords.end())
         {
-            lua_pop(s, 1);
-            lua_pushboolean(s, false);
+            // No stable key, or already hooked: do not stack a second hook.
+            lua_pushboolean(L, false);
             return 1;
         }
 
-        const int wb = lua_gettop(s);
-        if (lua_type(s, wb) != LUA_TTABLE)
+        const int top = lua_gettop(L);
+
+        lua_pushcclosure(L, Signals::getconnectionsV2, ("getconnections"), 0);
+        lua_pushvalue(L, 1);
+        if (lua_pcall(L, 1, 1, 0) != LUA_OK || !lua_istable(L, -1))
         {
-            lua_settop(s, wb - 1);
-            lua_pushboolean(s, false);
+            lua_settop(L, top);
+            lua_pushboolean(L, false);
             return 1;
         }
 
-        const int wc = static_cast<int>(lua_objlen(s, wb));
-        int wd = 0;
+        const int connsIdx = lua_gettop(L);
+        const int connCount = (int)lua_objlen(L, connsIdx);
 
-        for (int n4 = 1; n4 <= wc; ++n4)
+        lua_createtable(L, connCount, 0);
+        const int funcsIdx = lua_gettop(L);
+        int saved = 0;
+
+        for (int i = 1; i <= connCount; ++i)
         {
-            lua_rawcheckstack(s, 8);
-            lua_rawgeti(s, wb, n4);
-            const int we = lua_gettop(s);
-
-            if (lua_type(s, we) != LUA_TTABLE)
+            lua_rawcheckstack(L, 8);
+            lua_rawgeti(L, connsIdx, i);
+            if (!lua_istable(L, -1))
             {
-                lua_settop(s, we - 1);
+                lua_pop(L, 1);
+                continue;
+            }
+            const int eIdx = lua_gettop(L);
+
+            // A connection belonging to another Lua state cannot be replayed
+            // from here, so leave it alone.
+            lua_getfield(L, eIdx, "ForeignState");
+            const bool foreign = lua_toboolean(L, -1) != 0;
+            lua_pop(L, 1);
+            if (foreign)
+            {
+                lua_pop(L, 1);
                 continue;
             }
 
-            lua_getfield(s, we, ("ForeignState"));
-            const bool wf = lua_toboolean(s, -1) != 0;
-            xq7lp(s, 1);
-
-            lua_getfield(s, we, ("Function"));
-            if (wf || lua_type(s, -1) != LUA_TFUNCTION)
+            lua_getfield(L, eIdx, "Function");
+            if (!lua_isfunction(L, -1))
             {
-                lua_settop(s, we - 1);
+                lua_pop(L, 2);
                 continue;
             }
 
-            const int wg = lua_gettop(s);
-            Closure* wh = clvalue(luaA_toobject(s, wg));
+            ++saved;
+            lua_rawseti(L, funcsIdx, saved); // pops the handler
 
-            if (wh->isC || lua_rawequal(s, wg, wa))
+            // getconnections entries expose the connection's methods on the
+            // entry itself (there is no "Connection" field), so the entry is
+            // the receiver.
+            lua_getfield(L, eIdx, "Disconnect");
+            if (lua_isfunction(L, -1))
             {
-                lua_settop(s, we - 1);
-                continue;
+                lua_pushvalue(L, eIdx);
+                if (lua_pcall(L, 1, 0, 0) != LUA_OK)
+                    lua_pop(L, 1);
             }
-
-            mt9cd(s, wh);
-            const int wi = lua_gettop(s);
-
-            lua_pushvalue(s, wa);
-            lua_pushvalue(s, 1);
-            lua_pushvalue(s, wi);
-            lua_pushvalue(s, wg);
-            lua_pushcclosure(s, ty8hs, ("hooksignal"), 4);
-            const int wj = lua_gettop(s);
-
-            rn5bf(s, wg, wj);
-            ++wd;
-
-            lua_settop(s, we - 1);
+            else
+            {
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1); // entry
         }
 
-        lua_settop(s, wb - 1);
-        lua_pushboolean(s, wd > 0);
+        lua_pushlightuserdata(L, key);
+        lua_pushcclosure(L, SignalDispatcher, ("SignalDispatcher"), 1);
+        const int dispIdx = lua_gettop(L);
+
+        lua_getfield(L, 1, "Connect");
+        if (!lua_isfunction(L, -1))
+        {
+            lua_settop(L, top);
+            lua_pushboolean(L, false);
+            return 1;
+        }
+        lua_pushvalue(L, 1);
+        lua_pushvalue(L, dispIdx);
+        if (lua_pcall(L, 2, 1, 0) != LUA_OK || lua_isnil(L, -1))
+        {
+            lua_settop(L, top);
+            lua_pushboolean(L, false);
+            return 1;
+        }
+
+        SignalRecord rec;
+        lua_pushvalue(L, 1);
+        rec.SignalRef = lua_ref(L, -1);
+        lua_pop(L, 1);
+
+        lua_pushvalue(L, funcsIdx);
+        rec.FunctionsRef = lua_ref(L, -1);
+        lua_pop(L, 1);
+
+        lua_pushvalue(L, 2);
+        rec.CallbackRef = lua_ref(L, -1);
+        lua_pop(L, 1);
+
+        rec.HookRef = lua_ref(L, -1); // the connection Connect just returned
+        lua_pop(L, 1);
+
+        SignalRecords[key] = rec;
+
+        lua_settop(L, top);
+        lua_pushboolean(L, true);
         return 1;
     }
 
