@@ -848,15 +848,20 @@ pcall(task.defer, function()
     end
 
     genv.mousescroll = function(delta)
-        -- VirtualInputManager drops the wheel sign: every notch arrives as +1,
-        -- so a scroll down zoomed in exactly like a scroll up. The real Win32
-        -- wheel keeps the sign, but only when the game owns the foreground.
-        -- Only the already-focused client can take a real Win32 wheel; when we
-        -- have to fight for the foreground the game may drop the message, so
-        -- fall back to VirtualInputManager (single event, sign collapsed).
+        -- A wheel event only reaches UserInputService while the window owns the
+        -- foreground, and VirtualInputManager clamps every notch to +1 so a
+        -- scroll down zoomed in exactly like a scroll up. Use the real Win32
+        -- wheel directly when the client is already in front, otherwise borrow
+        -- the foreground for a single frame through the native cycle helper and
+        -- give it straight back.
         if __client_focused and __client_focused() then
             return orig.mousescroll(delta)
         end
+        if __wheel_os_cycle and __wheel_os_cycle(delta) then
+            return
+        end
+        -- Last resort: no foreground could be taken, so send the VirtualInputManager
+        -- event (magnitude is lost, but the direction at least reaches the game).
         local x, y = cursor()
         if not pcall(vim.SendMouseWheelEvent, vim, x, y, delta, game) then
             return orig.mousescroll(delta)

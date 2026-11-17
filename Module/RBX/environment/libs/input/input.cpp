@@ -570,6 +570,51 @@ void Input::register_lib(lua_State* L)
         return 1;
     }, Input::funcnameinc++);
 
+    Environment->make_global(L, ("__wheel_os_cycle"), +[](lua_State* L) -> int
+    {
+        // Roblox only feeds a wheel event into UserInputService when the window
+        // owns the foreground, and VirtualInputManager flattens every notch to
+        // +1 so scrolling down zoomed in. Borrow the foreground for a single
+        // frame, inject a real wheel event that keeps the caller's sign, then
+        // hand the foreground back before the next frame can lock the camera.
+        const int delta = static_cast<int>(luaL_checkinteger(L, 1));
+
+        HWND hwnd = RobloxWindow();
+        if (!hwnd)
+        {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+
+        EnsureCursorInClient(hwnd);
+
+        HWND previous = GetForegroundWindow();
+        if (previous != hwnd)
+            ForceForeground(hwnd);
+
+        if (GetForegroundWindow() != hwnd)
+        {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+
+        INPUT in{};
+        in.type = INPUT_MOUSE;
+        in.mi.mouseData = static_cast<DWORD>(delta * WHEEL_DELTA);
+        in.mi.dwFlags = MOUSEEVENTF_WHEEL;
+        SendInput(1, &in, sizeof(INPUT));
+
+        // Let the client pump translate the wheel into an InputObject before the
+        // foreground is released; 90ms covers two frames at 60Hz.
+        Sleep(90);
+
+        if (previous && previous != hwnd)
+            ForceForeground(previous);
+
+        lua_pushboolean(L, 1);
+        return 1;
+    }, Input::funcnameinc++);
+
     Environment->make_global(L, ("__focus_client"), +[](lua_State* L) -> int
     {
         // Try to pull the client window to the front. Only when this succeeds is
