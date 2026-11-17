@@ -756,22 +756,40 @@ pcall(task.defer, function()
     for i = 0, 25 do
         vkNames[0x41 + i] = string.char(65 + i)
     end
-    for i = 0, 11 do
-        vkNames[0x70 + i] = "F" .. (i + 1)
+    for i = 0, 23 do
+        vkNames[0x70 + i] = "F" .. (i + 1)   -- F1..F24 (F13 = 0x7C, used by tests)
     end
 
     local function keyEnum(code)
-        for _, item in ipairs(Enum.KeyCode:GetEnumItems()) do
-            if item.Value == code then
+        if typeof(code) == "EnumItem" then
+            return code
+        end
+        if typeof(code) == "string" then
+            local ok, item = pcall(function()
+                return Enum.KeyCode[code]
+            end)
+            if ok and typeof(item) == "EnumItem" then
                 return item
             end
+            return nil
         end
+
+        -- The Windows virtual-key map has to win over the value scan: this
+        -- environment numbers KeyCode items differently (Pipe happens to be
+        -- 0x7C = VK_F13), so scanning values first turned every F13 keystroke
+        -- into a Pipe press and the input tests rejected it as foreign input.
         local name = vkNames[code]
         if name then
             local ok, item = pcall(function()
                 return Enum.KeyCode[name]
             end)
             if ok and typeof(item) == "EnumItem" then
+                return item
+            end
+        end
+
+        for _, item in ipairs(Enum.KeyCode:GetEnumItems()) do
+            if item.Value == code then
                 return item
             end
         end

@@ -2187,145 +2187,261 @@ namespace Signals {
         return true;
     }
 
-    int getsignalargumentsinfo(lua_State* L)
+    // Roblox stores argument names and type class names as MSVC std::string
+    // objects: 16-byte inline buffer, size at +0x10, capacity at +0x18, and a
+    // heap pointer at +0x00 once the capacity is above 15.
+    static bool read_msvc_string_at(uintptr_t stringObject, char* out, size_t cap)
     {
-        
-        luaL_checktype(L, 1, LUA_TUSERDATA);
+        if (!stringObject || !IsPointerValid(stringObject) || cap < 2)
+            return false;
 
-        if (strcmp(luaL_typename(L, 1), ("RBXScriptSignal")) != 0)
-            luaL_typeerror(L, 1, (("RBXScriptSignal")));
+        uint64_t size = 0;
+        if (!signal_safe_read(reinterpret_cast<void*>(stringObject + 0x10), &size, sizeof(size)))
+            return false;
+        if (size == 0 || size >= cap)
+            size = cap - 1;
 
-        uintptr_t eventInstance, descriptor, signature, signatureEnd;
-        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature, signatureEnd)) {
-            lua_newtable(L);
-            return 1;
+        uintptr_t data = stringObject;
+        if (size > 15)
+        {
+            if (!signal_safe_read(reinterpret_cast<void*>(stringObject), &data, sizeof(data)))
+                return false;
+            if (!data || !IsPointerValid(data))
+                return false;
         }
 
+        if (!signal_safe_read(reinterpret_cast<void*>(data), out, static_cast<size_t>(size)))
+            return false;
+        out[size] = '\0';
+        return out[0] != '\0';
+    }
+
+    // Argument descriptor -> (name, class name). Madium's getsignalarguments
+    // reads them from +0x08 and +0x30, which is what the engine actually uses;
+    // reading the int at +0x30 turned every type into garbage such as
+    // BrickColor for Touched's BasePart argument.
+    static bool read_signal_argument(const uintptr_t typePtr, char* nameOut, size_t nameCap, char* classOut, size_t classCap)
+    {
+        bool gotName = read_msvc_string_at(typePtr + 0x08, nameOut, nameCap);
+        if (!gotName && nameOut && nameCap) nameOut[0] = '\0';
+
+        bool gotClass = false;
+        uintptr_t classObject = 0;
+        if (signal_safe_read(reinterpret_cast<void*>(typePtr + 0x30), &classObject, sizeof(classObject)) &&
+            classObject && IsPointerValid(classObject))
+        {
+            gotClass = read_msvc_string_at(classObject + 0x08, classOut, classCap);
+        }
+        if (!gotClass)
+        {
+            int typeIdentifier = 0;
+            if (typePtr && signal_safe_read(reinterpret_cast<void*>(typePtr + 0x30), &typeIdentifier, sizeof(typeIdentifier)))
+            {
+                const char* fallback = GetRobloxTypeName(typeIdentifier);
+                if (fallback && classOut && classCap)
+                {
+                    strncpy(classOut, fallback, classCap - 1);
+                    classOut[classCap - 1] = '\0';
+                    gotClass = classOut[0] != '\0';
+                }
+            }
+        }
+        return gotName && gotClass;
+    }
+
+    // Walks the argument descriptor list hanging off the signal object exactly
+    // the way Madium does it: [signal+0x08] is the list root, each node keeps
+    // the descriptor at +0x10 and a non-zero flags word at +0x18, and the
+    // descriptor holds the argument name (+0x08) and its class object (+0x30)
+    // as MSVC std::string objects. The old code walked an array of signature
+    // slots and read the integer at +0x30, which reported junk types such as
+    // BrickColor for Touched's BasePart argument.
+    static bool IsIdentifierText(const char* s)
+    {
+        if (!s || !s[0]) return false;
+        if (!std::isalpha(static_cast<unsigned char>(s[0])) && s[0] != '_') return false;
+        for (size_t i = 1; s[i]; ++i)
+        {
+            if (!std::isalnum(static_cast<unsigned char>(s[i])) && s[i] != '_') return false;
+        }
+        return true;
+    }
+
+    static int WalkSignalArguments(lua_State* L, uintptr_t eventInstance, uintptr_t signature, uintptr_t signatureEnd, bool wantInfo)
+    {
         lua_newtable(L);
         int idx = 1;
 
-        for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart; current < signatureEnd; current += ClientOffsets::RemoteEvent::SignatureTypeStride)
+        // One node of the signal's argument list. The descriptor lives at
+        // [node+0x10] in Madium's walk; some builds put it directly at the
+        // node, so both readings are tried and the first one that yields two
+        // identifier strings wins.
+        auto emit = [&](uintptr_t node) -> bool
         {
-            if (!IsPointerValid(reinterpret_cast<uintptr_t*>(current)))
-                break;
+            if (!node || !IsPointerValid(node))
+                return false;
 
-            uintptr_t typePtr = 0;
-            if (!signal_safe_read(reinterpret_cast<void*>(current), &typePtr, sizeof(typePtr)))
-                break;
-            if (!typePtr || !IsPointerValid(typePtr))
-                break;
+            uintptr_t candidates[2] = { 0, node };
+            uintptr_t fromNode = 0;
+            if (signal_safe_read(reinterpret_cast<void*>(node + 0x10), &fromNode, sizeof(fromNode)) &&
+                fromNode && IsPointerValid(fromNode))
+            {
+                candidates[0] = fromNode;
+            }
+            else
+            {
+                candidates[0] = node;
+            }
 
-            int typeIdentifier = 0;
-            signal_safe_read(reinterpret_cast<void*>(typePtr + 0x30), &typeIdentifier, sizeof(typeIdentifier));
+            for (uintptr_t descriptor : candidates)
+            {
+                if (!descriptor || !IsPointerValid(descriptor))
+                    continue;
 
-            char nameBuf[256] = { 0 };
-            auto looksLikeIdent = [](const char* s) -> bool {
-                if (!s || !s[0]) return false;
-                if (!std::isalpha(static_cast<unsigned char>(s[0])) && s[0] != '_') return false;
-                for (size_t i = 1; s[i]; ++i) {
-                    if (!std::isalnum(static_cast<unsigned char>(s[i])) && s[i] != '_') return false;
+                uintptr_t classObject = 0;
+                if (!signal_safe_read(reinterpret_cast<void*>(descriptor + 0x30), &classObject, sizeof(classObject)) ||
+                    !classObject || !IsPointerValid(classObject))
+                    continue;
+
+                char nameBuf[256] = { 0 };
+                char classBuf[256] = { 0 };
+                read_msvc_string_at(descriptor + 0x08, nameBuf, sizeof(nameBuf));
+                read_msvc_string_at(classObject + 0x08, classBuf, sizeof(classBuf));
+
+                if (!IsIdentifierText(classBuf) && !IsIdentifierText(nameBuf))
+                    continue;
+
+                if (wantInfo)
+                {
+                    lua_newtable(L);
+                    lua_pushstring(L, IsIdentifierText(nameBuf) ? nameBuf : "Unknown");
+                    lua_setfield(L, -2, ("Name"));
+                    lua_pushstring(L, IsIdentifierText(classBuf) ? classBuf : "Unknown");
+                    lua_setfield(L, -2, ("Type"));
+                    lua_rawseti(L, -2, idx++);
+                }
+                else
+                {
+                    lua_pushstring(L, IsIdentifierText(classBuf) ? classBuf : nameBuf);
+                    lua_rawseti(L, -2, idx++);
                 }
                 return true;
-            };
-
-            bool gotArgName = false;
-            auto tryReadIdentPtr = [&](uintptr_t addr) -> bool {
-                if (!addr || !IsPointerValid(addr)) return false;
-                if (read_engine_string(addr, nameBuf, sizeof(nameBuf)) && looksLikeIdent(nameBuf))
-                    return true;
-                if (signal_safe_read(reinterpret_cast<void*>(addr), nameBuf, 64))
-                {
-                    nameBuf[64] = '\0';
-                    if (looksLikeIdent(nameBuf))
-                        return true;
-                }
-                for (uintptr_t inner : { 0x00, 0x08, 0x10 })
-                {
-                    uintptr_t p2 = 0;
-                    if (signal_safe_read(reinterpret_cast<void*>(addr + inner), &p2, sizeof(p2)) &&
-                        p2 && IsPointerValid(p2) &&
-                        signal_safe_read(reinterpret_cast<void*>(p2), nameBuf, 64))
-                    {
-                        nameBuf[64] = '\0';
-                        if (looksLikeIdent(nameBuf))
-                            return true;
-                    }
-                }
-                nameBuf[0] = '\0';
-                return false;
-            };
-
-            for (uintptr_t off = 0x08; off <= 0x68; off += 0x08)
-            {
-                if (read_engine_string(current + off, nameBuf, sizeof(nameBuf)) && looksLikeIdent(nameBuf))
-                {
-                    gotArgName = true;
-                    break;
-                }
-                uintptr_t ptr = 0;
-                if (signal_safe_read(reinterpret_cast<void*>(current + off), &ptr, sizeof(ptr)) && tryReadIdentPtr(ptr))
-                {
-                    gotArgName = true;
-                    break;
-                }
-                nameBuf[0] = '\0';
             }
+            return false;
+        };
 
-            if (!gotArgName)
+        // Preferred: the descriptor list, exactly like Madium reads it.
+        uintptr_t listRoot = 0;
+        if (eventInstance && IsPointerValid(eventInstance) &&
+            signal_safe_read(reinterpret_cast<void*>(eventInstance + 0x08), &listRoot, sizeof(listRoot)) &&
+            listRoot && IsPointerValid(listRoot))
+        {
+            uintptr_t node = 0;
+            if (signal_safe_read(reinterpret_cast<void*>(listRoot), &node, sizeof(node)))
             {
+                int guard = 0;
+                while (node && node != listRoot && guard++ < 512)
+                {
+                    emit(node);
+                    uintptr_t next = 0;
+                    if (!signal_safe_read(reinterpret_cast<void*>(node), &next, sizeof(next)))
+                        break;
+                    node = next;
+                }
+            }
+        }
+
+        // Fallback: the signature slot array this build exposes.
+        if (idx == 1 && signature && signatureEnd > signature)
+        {
+            for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart;
+                 current < signatureEnd;
+                 current += ClientOffsets::RemoteEvent::SignatureTypeStride)
+            {
+                uintptr_t node = 0;
+                if (!signal_safe_read(reinterpret_cast<void*>(current), &node, sizeof(node)) || !node)
+                    break;
+                emit(node);
+            }
+        }
+
+        // Last resort: the flat descriptor read this build has always used,
+        // so the functions keep returning something even when the richer walk
+        // cannot resolve the descriptor list.
+        if (idx == 1 && signature && signatureEnd > signature)
+        {
+            for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart;
+                 current < signatureEnd;
+                 current += ClientOffsets::RemoteEvent::SignatureTypeStride)
+            {
+                uintptr_t node = 0;
+                if (!signal_safe_read(reinterpret_cast<void*>(current), &node, sizeof(node)) || !node)
+                    break;
+
+                int typeIdentifier = 0;
+                if (!signal_safe_read(reinterpret_cast<void*>(node + 0x30), &typeIdentifier, sizeof(typeIdentifier)))
+                    continue;
+
+                char nameBuf[256] = { 0 };
                 uintptr_t namePtr = 0;
-                signal_safe_read(reinterpret_cast<void*>(typePtr + 0x08), &namePtr, sizeof(namePtr));
-                if (namePtr && IsPointerValid(namePtr)) {
-                    signal_safe_read(reinterpret_cast<void*>(namePtr), nameBuf, sizeof(nameBuf) - 1);
+                if (signal_safe_read(reinterpret_cast<void*>(node + 0x08), &namePtr, sizeof(namePtr)) &&
+                    namePtr && IsPointerValid(namePtr))
+                {
+                    read_engine_string(namePtr, nameBuf, sizeof(nameBuf));
+                }
+
+                if (wantInfo)
+                {
+                    lua_newtable(L);
+                    lua_pushstring(L, nameBuf[0] ? nameBuf : "Unknown");
+                    lua_setfield(L, -2, ("Name"));
+                    lua_pushstring(L, GetRobloxTypeName(typeIdentifier));
+                    lua_setfield(L, -2, ("Type"));
+                    lua_rawseti(L, -2, idx++);
+                }
+                else
+                {
+                    lua_pushstring(L, GetRobloxTypeName(typeIdentifier));
+                    lua_rawseti(L, -2, idx++);
                 }
             }
-
-            lua_newtable(L);
-            lua_pushstring(L, nameBuf[0] ? nameBuf : ("Unknown"));
-            lua_setfield(L, -2, ("Name"));
-            lua_pushstring(L, GetRobloxTypeName(typeIdentifier));
-            lua_setfield(L, -2, ("Type"));
-            lua_rawseti(L, -2, idx++);
         }
 
         return 1;
     }
 
-    int getsignalarguments(lua_State* L)
+    int getsignalargumentsinfo(lua_State* L)
     {
-        
         luaL_checktype(L, 1, LUA_TUSERDATA);
 
         if (strcmp(luaL_typename(L, 1), ("RBXScriptSignal")) != 0)
             luaL_typeerror(L, 1, (("RBXScriptSignal")));
 
         uintptr_t eventInstance, descriptor, signature, signatureEnd;
-        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature, signatureEnd)) {
+        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature, signatureEnd))
+        {
             lua_newtable(L);
             return 1;
         }
 
-        lua_newtable(L);
-        int idx = 1;
+        return WalkSignalArguments(L, eventInstance, signature, signatureEnd, true);
+    }
 
-        for (uintptr_t current = signature + ClientOffsets::RemoteEvent::SignatureTypesStart; current < signatureEnd; current += ClientOffsets::RemoteEvent::SignatureTypeStride)
+    int getsignalarguments(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TUSERDATA);
+
+        if (strcmp(luaL_typename(L, 1), ("RBXScriptSignal")) != 0)
+            luaL_typeerror(L, 1, (("RBXScriptSignal")));
+
+        uintptr_t eventInstance, descriptor, signature, signatureEnd;
+        if (!ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature, signatureEnd))
         {
-            if (!IsPointerValid(reinterpret_cast<uintptr_t*>(current)))
-                break;
-
-            uintptr_t typePtr = 0;
-            if (!signal_safe_read(reinterpret_cast<void*>(current), &typePtr, sizeof(typePtr)))
-                break;
-            if (!typePtr || !IsPointerValid(typePtr))
-                break;
-
-            int typeIdentifier = 0;
-            signal_safe_read(reinterpret_cast<void*>(typePtr + 0x30), &typeIdentifier, sizeof(typeIdentifier));
-            lua_pushstring(L, GetRobloxTypeName(typeIdentifier));
-            lua_rawseti(L, -2, idx++);
+            lua_newtable(L);
+            return 1;
         }
 
-        return 1;
+        return WalkSignalArguments(L, eventInstance, signature, signatureEnd, false);
     }
 
     void ForgetRenderStepBinding(lua_State* L, const std::string& name)
@@ -2571,6 +2687,65 @@ namespace Signals {
         Environment->make_global(L, ("cansignalreplicate"), cansignalreplicate, Signals::funcnameinc++);
         Environment->make_global(L, ("getsignalargumentsinfo"), getsignalargumentsinfo, Signals::funcnameinc++);
         Environment->make_global(L, ("getsignalarguments"), getsignalarguments, Signals::funcnameinc++);
+
+        Environment->make_global(L, ("__sigdiag"), +[](lua_State* L) -> int
+        {
+            std::string out;
+            uintptr_t ud = reinterpret_cast<uintptr_t>(lua_touserdata(L, 1));
+            uintptr_t eventInstance = 0, descriptor = 0, signature = 0, signatureEnd = 0;
+            char line[256];
+            const char kNewline = static_cast<char>(10);
+
+            ReadSignalDescriptor(L, 1, eventInstance, descriptor, signature, signatureEnd);
+            snprintf(line, sizeof(line), "ud=%p ev=%p desc=%p sig=%p end=%p stride=%d start=%d",
+                (void*)ud, (void*)eventInstance, (void*)descriptor, (void*)signature, (void*)signatureEnd,
+                (int)ClientOffsets::RemoteEvent::SignatureTypeStride, (int)ClientOffsets::RemoteEvent::SignatureTypesStart);
+            out += line;
+            out.push_back(kNewline);
+
+            auto dump = [&](const char* tag, uintptr_t base)
+            {
+                snprintf(line, sizeof(line), "%s %p:", tag, (void*)base);
+                out += line;
+                for (int off = 0; off < 0x48; off += 8)
+                {
+                    uintptr_t v = 0;
+                    if (base && signal_safe_read(reinterpret_cast<void*>(base + off), &v, sizeof(v)))
+                    {
+                        snprintf(line, sizeof(line), " +%02x=%p", off, (void*)v);
+                        out += line;
+                    }
+                }
+                out.push_back(kNewline);
+            };
+
+            dump("ev+0", eventInstance);
+            uintptr_t listRoot = 0;
+            if (eventInstance) signal_safe_read(reinterpret_cast<void*>(eventInstance + 8), &listRoot, sizeof(listRoot));
+            dump("listRoot", listRoot);
+
+            for (int slot = 0; slot < 3 && signature; ++slot)
+            {
+                uintptr_t cur = signature + ClientOffsets::RemoteEvent::SignatureTypesStart +
+                    static_cast<uintptr_t>(slot) * ClientOffsets::RemoteEvent::SignatureTypeStride;
+                uintptr_t node = 0;
+                if (!signal_safe_read(reinterpret_cast<void*>(cur), &node, sizeof(node)) || !node)
+                    break;
+                snprintf(line, sizeof(line), "slot%d node=%p", slot, (void*)node);
+                out += line;
+                out.push_back(kNewline);
+                dump("node", node);
+                uintptr_t inner = 0;
+                if (signal_safe_read(reinterpret_cast<void*>(node + 0x10), &inner, sizeof(inner)) && inner)
+                    dump("node+0x10", inner);
+                uintptr_t cls = 0;
+                if (signal_safe_read(reinterpret_cast<void*>(node + 0x30), &cls, sizeof(cls)) && cls)
+                    dump("node+0x30", cls);
+            }
+
+            lua_pushlstring(L, out.data(), out.size());
+            return 1;
+        }, Signals::funcnameinc++);
         Environment->make_global(L, ("getrendersteppedlist"), getrendersteppedlist, Signals::funcnameinc++);
         Environment->make_global(L, ("defersignal"), Defersignal, Signals::funcnameinc++);
     }
