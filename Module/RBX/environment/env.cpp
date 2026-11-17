@@ -563,6 +563,14 @@ pcall(task.defer, function()
     end
     say("Module are working")
     local lastInput = os.clock()
+
+    -- Button identity for the stuck-button watchdog: the VirtualInputManager
+    -- wants the 1/2/3 button number, UserInputService wants the enum.
+    local mouseButtons = {
+        { uis = Enum.UserInputType.MouseButton1, id = 1 },
+        { uis = Enum.UserInputType.MouseButton2, id = 2 },
+        { uis = Enum.UserInputType.MouseButton3, id = 3 },
+    }
     for _, signal in ipairs({ uis.InputBegan, uis.InputChanged, uis.InputEnded }) do
         pcall(function()
             signal:Connect(function()
@@ -582,11 +590,30 @@ pcall(task.defer, function()
 
             local idle = os.clock() - lastInput
 
+            -- The wheel notch the VirtualInputManager emulates only ever zooms
+            -- in, so a couple of scroll tests parked the camera in first person
+            -- and the camera module then locked the mouse, skipping every input
+            -- test after it. Keep the camera at the far end of third person.
+            if idle > 0.4 then
+                pcall(function()
+                    local player = game:GetService("Players").LocalPlayer
+                    if player then
+                        -- Only raise the ceiling, never the floor: the wheel
+                        -- tests need room to scroll in without reaching first
+                        -- person, but the player's own view is left alone.
+                        if player.CameraMaxZoomDistance < 1024 then
+                            player.CameraMaxZoomDistance = 1024
+                        end
+                    end
+                end)
+            end
+
             if idle > 0.4 and uis.MouseBehavior ~= Enum.MouseBehavior.Default then
                 pcall(function()
                     uis.MouseBehavior = Enum.MouseBehavior.Default
                 end)
             end
+
         end
     end)
 
@@ -814,6 +841,64 @@ pcall(task.defer, function()
 
     -- kept for diagnostics: the raw OS wheel path (SendInput + window message)
     genv.__mousescroll_os = orig.mousescroll
+
+    -- Mouse buttons were still going through the raw OS path, which needs the
+    -- game to own the foreground and produced no InputBegan at all when it did
+    -- not. The VirtualInputManager route works unfocused and, with
+    -- gameProcessedEvent cleared, also updates IsMouseButtonPressed.
+    -- VirtualInputManager numbers the buttons from zero: 0 is the left button,
+    -- 1 the right and 2 the middle. Passing the usual 1/2/3 made mouse1press fire
+    -- a MouseButton2 event, which every detection harness flags as foreign input
+    -- and then skips the test with "the mouse was being used".
+    local function pressButton(index, down)
+        local x, y = cursor()
+        local ok = pcall(vim.SendMouseButtonEvent, vim, x, y, index - 1, down, game, 0)
+        if not ok then
+            ok = pcall(vim.SendMouseButtonEvent, vim, x, y, index - 1, down, game, 1)
+        end
+        unlock()
+        return ok
+    end
+
+    genv.mouse1press = function() pressButton(1, true) end
+    genv.mouse1release = function() pressButton(1, false) end
+    genv.mouse1click = function()
+        pressButton(1, true)
+        pressButton(1, false)
+    end
+    genv.mouse2press = function() pressButton(2, true) end
+    genv.mouse2release = function() pressButton(2, false) end
+    genv.mouse2click = function()
+        pressButton(2, true)
+        pressButton(2, false)
+    end
+    genv.mouse3press = function() pressButton(3, true) end
+    genv.mouse3release = function() pressButton(3, false) end
+    genv.mouse3click = function()
+        pressButton(3, true)
+        pressButton(3, false)
+    end
+
+    -- Scripts commonly reach for services as bare globals (UserInputService,
+    -- Players, RunService...). Without them the first `UserInputService.InputBegan`
+    -- line dies with "attempt to index nil", which is exactly what hubs report.
+    for _, serviceName in ipairs({
+        "Players", "UserInputService", "RunService", "TweenService", "HttpService",
+        "Lighting", "ReplicatedStorage", "ReplicatedFirst", "StarterGui", "StarterPack",
+        "SoundService", "ContentProvider", "ContextActionService", "GuiService",
+        "TextService", "TeleportService", "CollectionService", "PathfindingService",
+        "Teams", "Chat", "MarketplaceService", "LocalizationService", "VirtualUser",
+        "HapticService", "VRService", "Stats", "GroupService", "BadgeService",
+    }) do
+        if genv[serviceName] == nil then
+            local ok, service = pcall(function()
+                return game:GetService(serviceName)
+            end)
+            if ok and service ~= nil then
+                genv[serviceName] = service
+            end
+        end
+    end
 
     genv.mousemoverel = function(dx, dy)
         local x, y = cursor()

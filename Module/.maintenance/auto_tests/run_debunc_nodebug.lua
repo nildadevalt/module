@@ -1,3 +1,23 @@
+-- Zoom the camera all the way out before any test runs, exactly like zooming
+-- out by hand first. The emulated wheel notch only ever zooms in, so starting
+-- close lets a couple of scroll tests land in first person, where the camera
+-- module locks the mouse and every later input test is skipped.
+pcall(function()
+	local Player = game:GetService("Players").LocalPlayer
+	if not Player then return end
+
+	local MaxDistance = Player.CameraMaxZoomDistance
+	if MaxDistance < 1024 then
+		Player.CameraMaxZoomDistance = 1024
+		MaxDistance = 1024
+	end
+
+	local MinDistance = Player.CameraMinZoomDistance
+	Player.CameraMinZoomDistance = MaxDistance -- snaps the camera to the far end
+	task.wait(0.25)
+	Player.CameraMinZoomDistance = MinDistance
+	task.wait(0.1)
+end)
 local __debUNC_SOURCE = [==[
 --!strict
 type Function = (...any) -> ...any?
