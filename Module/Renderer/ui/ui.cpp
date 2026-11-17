@@ -316,15 +316,29 @@ void module::core::graphics::ui::c_ui::draw_lua_ui()
 
 namespace
 {
-    const ImU32 kAccent = IM_COL32(124, 105, 245, 255);
-    const ImU32 kAccentDim = IM_COL32(124, 105, 245, 190);
-    const ImU32 kTextStrong = IM_COL32(240, 241, 246, 255);
-    const ImU32 kTextMuted = IM_COL32(150, 154, 168, 255);
+    const ImU32 kTextStrong = IM_COL32(232, 232, 234, 255);
+    const ImU32 kTextMuted = IM_COL32(138, 139, 143, 255);
+    const ImU32 kSurfacePressed = IM_COL32(255, 255, 255, 220);
 
-    // Flat, rounded navigation row: the active one carries a muted accent pill,
-    // nothing else. No borders, no gradients.
-    bool nav_row(const char* id, const char* label, bool active, float row_height)
+    // Every icon is a cell of the Hugeicons atlas uploaded by the renderer.
+    void draw_icon(int icon, ImVec2 pos, float size, ImU32 tint)
     {
+        void* atlas = module::core::graphics::ui::c_ui::icon_atlas;
+        if (!atlas)
+            return;
+
+        const float atlas_width = (float)module::core::graphics::ui::icon_atlas_width;
+        const float u0 = (icon * module::core::graphics::ui::icon_atlas_cell) / atlas_width;
+        const float u1 = ((icon + 1) * module::core::graphics::ui::icon_atlas_cell) / atlas_width;
+
+        ImGui::GetWindowDrawList()->AddImage((ImTextureID)(intptr_t)atlas, pos,
+            ImVec2(pos.x + size, pos.y + size), ImVec2(u0, 0.0f), ImVec2(u1, 1.0f), tint);
+    }
+
+    // Navigation row: a hairline marker on the left when selected, nothing else.
+    bool nav_row(const char* id, const char* label, int icon, bool active, float row_height)
+    {
+        const float scale = module::core::graphics::c_graphics::dpi_scale;
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         ImVec2 pos = window->DC.CursorPos;
         float width = window->WorkRect.Max.x - window->DC.CursorPos.x;
@@ -333,13 +347,62 @@ namespace
         const bool hovered = ImGui::IsItemHovered();
         const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 
-        ImU32 background = active ? kAccentDim : (hovered ? IM_COL32(255, 255, 255, 16) : 0);
-        if (background)
-            window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + row_height), background, 8.0f);
+        if (active)
+            window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + row_height), IM_COL32(255, 255, 255, 14), 4.0f);
+        else if (hovered)
+            window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + row_height), IM_COL32(255, 255, 255, 8), 4.0f);
+
+        if (active)
+            window->DrawList->AddRectFilled(ImVec2(pos.x, pos.y + 6.0f * scale), ImVec2(pos.x + 2.0f * scale, pos.y + row_height - 6.0f * scale),
+                kSurfacePressed, 1.0f);
+
+        const float icon_size = 17.0f * scale;
+        const float pad = 14.0f * scale;
+        draw_icon(icon, ImVec2(pos.x + pad, pos.y + (row_height - icon_size) * 0.5f), icon_size,
+            active ? kTextStrong : IM_COL32(132, 133, 138, 255));
 
         ImVec2 text_size = ImGui::CalcTextSize(label);
-        window->DrawList->AddText(ImVec2(pos.x + 14.0f, pos.y + (row_height - text_size.y) * 0.5f),
-            active ? IM_COL32(255, 255, 255, 255) : kTextMuted, label);
+        window->DrawList->AddText(ImVec2(pos.x + pad + icon_size + 11.0f * scale, pos.y + (row_height - text_size.y) * 0.5f),
+            active ? kTextStrong : kTextMuted, label);
+        return clicked;
+    }
+
+    // Flat button: white fill for the primary action, hairline outline otherwise.
+    bool icon_button(const char* label, int icon, float width, float height, bool primary)
+    {
+        const float scale = module::core::graphics::c_graphics::dpi_scale;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.64f, 0.5f));
+        if (primary)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.933f, 0.933f, 0.937f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.00f, 1.00f, 1.00f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.84f, 0.84f, 0.85f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.10f, 0.10f, 0.10f, 1.00f));
+        }
+        else
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.00f, 1.00f, 1.00f, 0.04f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.00f, 1.00f, 1.00f, 0.09f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.00f, 1.00f, 1.00f, 0.14f));
+        }
+
+        const bool clicked = ImGui::Button(label, ImVec2(width, height));
+
+        if (!primary)
+        {
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            draw_list->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 255, 255, 26), 4.0f);
+        }
+
+        ImGui::PopStyleColor(primary ? 4 : 3);
+        ImGui::PopStyleVar();
+
+        ImVec2 minimum = ImGui::GetItemRectMin();
+        ImVec2 maximum = ImGui::GetItemRectMax();
+        const float icon_size = 15.0f * scale;
+        draw_icon(icon, ImVec2(minimum.x + 12.0f * scale, minimum.y + (maximum.y - minimum.y - icon_size) * 0.5f),
+            icon_size, primary ? IM_COL32(18, 18, 18, 235) : IM_COL32(226, 226, 228, 235));
         return clicked;
     }
 }
@@ -352,14 +415,30 @@ void module::core::graphics::ui::c_ui::draw()
     static char filter_buf[64] = "";
 
     const float scale = c_graphics::dpi_scale;
-    const float header_height = 46.0f * scale;
+    const float header_height = 52.0f * scale;
     const float footer_height = 26.0f * scale;
-    const float nav_width = 156.0f * scale;
-    const float row_height = 32.0f * scale;
-    const float button_height = 30.0f * scale;
+    const float nav_width = 168.0f * scale;
+    const float row_height = 34.0f * scale;
+    const float button_height = 32.0f * scale;
 
-    SetNextWindowSize(ImVec2(760.0f * scale, 460.0f * scale), ImGuiCond_FirstUseEver);
-    SetNextWindowSizeConstraints(ImVec2(420.0f * scale, 260.0f * scale), ImVec2(FLT_MAX, FLT_MAX));
+    SetNextWindowSizeConstraints(ImVec2(440.0f * scale, 280.0f * scale), ImVec2(FLT_MAX, FLT_MAX));
+
+    // First appearance: centre the panel and never let it hang over the edge of
+    // a small game window.
+    static bool placed_once = false;
+    if (!placed_once)
+    {
+        placed_once = true;
+        ImGuiViewport* viewport = GetMainViewport();
+        ImVec2 desired = ImVec2(780.0f * scale, 470.0f * scale);
+        if (desired.x > viewport->WorkSize.x - 40.0f * scale)
+            desired.x = ImMax(440.0f * scale, viewport->WorkSize.x - 40.0f * scale);
+        if (desired.y > viewport->WorkSize.y - 40.0f * scale)
+            desired.y = ImMax(280.0f * scale, viewport->WorkSize.y - 40.0f * scale);
+        SetNextWindowSize(desired, ImGuiCond_Always);
+        SetNextWindowPos(ImVec2(viewport->WorkPos.x + (viewport->WorkSize.x - desired.x) * 0.5f,
+            viewport->WorkPos.y + (viewport->WorkSize.y - desired.y) * 0.5f), ImGuiCond_Always);
+    }
     PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 
     if (Begin(("##paradox_root"), nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse))
@@ -367,21 +446,22 @@ void module::core::graphics::ui::c_ui::draw()
         ImDrawList* draw_list = GetWindowDrawList();
         ImVec2 origin = GetWindowPos();
         ImVec2 size = GetWindowSize();
+        const float pad = 18.0f * scale;
 
         // ---- header ---------------------------------------------------------
         {
-            float pad = 18.0f * scale;
-            draw_list->AddRectFilled(ImVec2(origin.x + pad, origin.y + 15.0f * scale),
-                ImVec2(origin.x + pad + 10.0f * scale, origin.y + 25.0f * scale), kAccent, 3.0f);
-            draw_list->AddText(GetFont(), GetFontSize(), ImVec2(origin.x + pad + 20.0f * scale, origin.y + 11.0f * scale),
+            const float badge = 20.0f * scale;
+            draw_icon(ICON_TERMINAL, ImVec2(origin.x + pad, origin.y + (header_height - badge) * 0.5f), badge, kTextStrong);
+
+            draw_list->AddText(GetFont(), GetFontSize() + 1.0f,
+                ImVec2(origin.x + pad + badge + 12.0f * scale, origin.y + header_height * 0.5f - GetFontSize() * 0.62f),
                 kTextStrong, "Paradox");
 
-            const char* subtitle = "executor";
-            float subtitle_width = CalcTextSize(subtitle).x;
-            draw_list->AddText(ImVec2(origin.x + size.x - pad - subtitle_width, origin.y + 12.0f * scale),
-                kTextMuted, subtitle);
+            const char* version = "v1.0";
+            float version_x = origin.x + size.x - pad - CalcTextSize(version).x;
+            draw_list->AddText(ImVec2(version_x, origin.y + header_height * 0.5f - GetFontSize() * 0.5f), kTextMuted, version);
 
-            SetCursorScreenPos(ImVec2(origin.x, origin.y));
+            SetCursorScreenPos(origin);
             InvisibleButton(("##header_drag"), ImVec2(size.x, header_height));
             if (IsItemActive() && IsMouseDragging(ImGuiMouseButton_Left))
             {
@@ -389,6 +469,7 @@ void module::core::graphics::ui::c_ui::draw()
                 ImVec2 current = GetWindowPos();
                 SetWindowPos(ImVec2(current.x + delta.x, current.y + delta.y));
             }
+
             draw_list->AddLine(ImVec2(origin.x, origin.y + header_height),
                 ImVec2(origin.x + size.x, origin.y + header_height), IM_COL32(255, 255, 255, 14), 1.0f);
         }
@@ -399,18 +480,18 @@ void module::core::graphics::ui::c_ui::draw()
         PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * scale, 12.0f * scale));
         BeginChild(("##nav"), ImVec2(nav_width, body_height), false, ImGuiWindowFlags_NoScrollbar);
         {
-            struct nav_entry { const char* label; };
+            struct nav_entry { const char* label; int icon; };
             static const nav_entry entries[] = {
-                { ("\xEE\x9D\xA8  Execution") },
-                { ("\xEE\x9F\x83  Scripts") },
-                { ("\xEE\xA2\xA5  Output") },
-                { ("\xEE\x9C\x93  Settings") },
+                { ("Execution"), ICON_PLAY },
+                { ("Scripts"), ICON_CODE },
+                { ("Output"), ICON_TERMINAL },
+                { ("Settings"), ICON_SETTINGS },
             };
             for (int i = 0; i < IM_ARRAYSIZE(entries); i++)
             {
                 char nav_id[16];
                 snprintf(nav_id, sizeof(nav_id), "##nav%d", i);
-                if (nav_row(nav_id, entries[i].label, active_panel == i, row_height))
+                if (nav_row(nav_id, entries[i].label, entries[i].icon, active_panel == i, row_height))
                     active_panel = i;
             }
         }
@@ -418,12 +499,14 @@ void module::core::graphics::ui::c_ui::draw()
         PopStyleVar();
 
         // ---- content --------------------------------------------------------
+        // hairline divider between the navigation rail and the panel
+        draw_list->AddLine(ImVec2(origin.x + nav_width, origin.y + header_height + 8.0f * scale),
+            ImVec2(origin.x + nav_width, origin.y + size.y - footer_height - 8.0f * scale),
+            IM_COL32(255, 255, 255, 12), 1.0f);
         SameLine();
         PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f * scale, 14.0f * scale));
         BeginChild(("##content"), ImVec2(0.0f, body_height), false);
         {
-            const ImVec4 primary = ImVec4(124.0f / 255.0f, 105.0f / 255.0f, 245.0f / 255.0f, 1.0f);
-
             if (active_panel == 0)
             {
                 if (BeginTabBar(("##scripttabs"), ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable))
@@ -449,22 +532,20 @@ void module::core::graphics::ui::c_ui::draw()
                         close_tab(tab_to_close);
                 }
 
-                const float editor_height = GetContentRegionAvail().y - button_height - 10.0f * scale;
+                const float editor_height = GetContentRegionAvail().y - button_height - 12.0f * scale;
                 if (active_tab >= 0 && active_tab < (int)editor_tabs.size())
                     editor_tabs[active_tab].editor.Render(("##editor"), ImVec2(0.0f, editor_height), true);
 
-                SetCursorPosY(GetCursorPosY() + 6.0f * scale);
-                PushStyleColor(ImGuiCol_Button, primary);
-                PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(primary.x * 1.12f, primary.y * 1.12f, primary.z * 1.12f, 1.0f));
-                PushStyleColor(ImGuiCol_ButtonActive, ImVec4(primary.x * 0.9f, primary.y * 0.9f, primary.z * 0.9f, 1.0f));
-                if (Button(("\xEE\x9D\xA8  Execute"), ImVec2(120.0f * scale, button_height)) && active_tab >= 0 && active_tab < (int)editor_tabs.size())
+                SetCursorPosY(GetCursorPosY() + 8.0f * scale);
+                if (icon_button(("Execute"), ICON_PLAY, 128.0f * scale, button_height, true) &&
+                    active_tab >= 0 && active_tab < (int)editor_tabs.size())
                     execute_script(editor_tabs[active_tab].editor.GetText());
-                PopStyleColor(3);
                 SameLine();
-                if (Button(("\xEE\x9D\x8D  Clear"), ImVec2(100.0f * scale, button_height)) && active_tab >= 0 && active_tab < (int)editor_tabs.size())
+                if (icon_button(("Clear"), ICON_DELETE, 108.0f * scale, button_height, false) &&
+                    active_tab >= 0 && active_tab < (int)editor_tabs.size())
                     editor_tabs[active_tab].editor.SetText((""));
                 SameLine();
-                if (Button(("\xEE\x9D\xBF  Clipboard"), ImVec2(120.0f * scale, button_height)))
+                if (icon_button(("Clipboard"), ICON_CLIPBOARD, 130.0f * scale, button_height, false))
                 {
                     const char* clip = GetClipboardText();
                     if (clip)
@@ -476,25 +557,22 @@ void module::core::graphics::ui::c_ui::draw()
                 TextDisabled(("Curated scripts"));
                 SetNextItemWidth(-1.0f);
                 Combo(("##script"), &current_script, script_labels, IM_ARRAYSIZE(script_labels));
-                SetCursorPosY(GetCursorPosY() + 8.0f * scale);
-                PushStyleColor(ImGuiCol_Button, primary);
-                PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(primary.x * 1.12f, primary.y * 1.12f, primary.z * 1.12f, 1.0f));
-                if (Button(("\xEE\x9D\xA8  Execute"), ImVec2(120.0f * scale, button_height)))
+                SetCursorPosY(GetCursorPosY() + 10.0f * scale);
+                if (icon_button(("Execute"), ICON_PLAY, 128.0f * scale, button_height, true))
                     execute_script(script_sources[current_script]);
-                PopStyleColor(2);
                 SameLine();
-                if (Button(("\xEE\xA3\x88  Copy"), ImVec2(100.0f * scale, button_height)))
+                if (icon_button(("Copy"), ICON_COPY, 100.0f * scale, button_height, false))
                     SetClipboardText(script_sources[current_script]);
                 SameLine();
-                if (Button(("\xEE\x9C\x90  New tab"), ImVec2(110.0f * scale, button_height)))
+                if (icon_button(("New tab"), ICON_PLUS, 116.0f * scale, button_height, false))
                     add_tab(script_labels[current_script], script_sources[current_script]);
             }
             else if (active_panel == 2)
             {
-                if (Button(("\xEE\x9D\x8D  Clear"), ImVec2(90.0f * scale, button_height)))
+                if (icon_button(("Clear"), ICON_DELETE, 100.0f * scale, button_height, false))
                     log_mgr.clear_log_info();
                 SameLine();
-                if (Button(("\xEE\xA3\x88  Copy"), ImVec2(90.0f * scale, button_height)))
+                if (icon_button(("Copy"), ICON_COPY, 96.0f * scale, button_height, false))
                 {
                     auto logs = log_mgr.get_log_info();
                     std::string out;
@@ -533,11 +611,11 @@ void module::core::graphics::ui::c_ui::draw()
             }
             else
             {
-                TextDisabled(("Paradox"));
-                SetCursorPosY(GetCursorPosY() + 4.0f * scale);
+                TextDisabled(("About"));
+                SetCursorPosY(GetCursorPosY() + 6.0f * scale);
                 Text(("Toggle the menu with INSERT, END or F2."));
-                SetCursorPosY(GetCursorPosY() + 12.0f * scale);
-                if (Button(("Unload"), ImVec2(110.0f * scale, button_height)))
+                SetCursorPosY(GetCursorPosY() + 16.0f * scale);
+                if (icon_button(("Unload"), ICON_STOP, 120.0f * scale, button_height, false))
                     exit(0);
             }
         }
@@ -548,11 +626,13 @@ void module::core::graphics::ui::c_ui::draw()
         {
             float y = origin.y + size.y - footer_height;
             draw_list->AddLine(ImVec2(origin.x, y), ImVec2(origin.x + size.x, y), IM_COL32(255, 255, 255, 14), 1.0f);
+
             char status[96];
             snprintf(status, sizeof(status), "%.0f FPS", GetIO().Framerate);
             float status_width = CalcTextSize(status).x;
-            draw_list->AddText(ImVec2(origin.x + 18.0f * scale, y + 5.0f * scale), kTextMuted, "Ready");
-            draw_list->AddText(ImVec2(origin.x + size.x - 18.0f * scale - status_width, y + 5.0f * scale), kTextMuted, status);
+            float text_y = y + (footer_height - GetFontSize()) * 0.5f;
+            draw_list->AddText(ImVec2(origin.x + pad, text_y), kTextMuted, "Ready");
+            draw_list->AddText(ImVec2(origin.x + size.x - pad - status_width, text_y), kTextMuted, status);
         }
     }
     End();
