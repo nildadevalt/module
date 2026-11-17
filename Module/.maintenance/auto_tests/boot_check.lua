@@ -1,0 +1,10 @@
+task.wait(0.5)
+print("[BC] globals ok UIS=" .. tostring(UserInputService) .. " genv_is_input=" .. tostring(getgenv().__rxs_input_vim))
+local n = 0
+local c = UserInputService.InputBegan:Connect(function() n = n + 1 end)
+mousemoveabs(400, 300)
+mouse1click()
+task.wait(0.2)
+c:Disconnect()
+print("[BC] events=" .. n)
+print("SUNCIO-DONE")
