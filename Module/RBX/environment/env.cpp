@@ -562,6 +562,34 @@ pcall(task.defer, function()
         pcall(out, msg)
     end
     say("Module are working")
+    local lastInput = os.clock()
+    for _, signal in ipairs({ uis.InputBegan, uis.InputChanged, uis.InputEnded }) do
+        pcall(function()
+            signal:Connect(function()
+                lastInput = os.clock()
+            end)
+        end)
+    end
+
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            -- Only when a test harness asked for it: unlocking during normal play
+            -- would fight a game's first-person camera.
+            if not genv.__rxs_unlock_mouse then
+                continue
+            end
+
+            local idle = os.clock() - lastInput
+
+            if idle > 0.4 and uis.MouseBehavior ~= Enum.MouseBehavior.Default then
+                pcall(function()
+                    uis.MouseBehavior = Enum.MouseBehavior.Default
+                end)
+            end
+        end
+    end)
+
 end)
 )LUA";
 
@@ -635,7 +663,185 @@ pcall(function()
 end)
 )LUA";
 
+    // Input through Roblox's own VirtualInputManager. Raw SendInput can only
+    // reach a foreground window, and Windows refuses to let a background
+    // process steal focus (SetForegroundWindow returns FALSE), so every click
+    // and key press landed in whatever app the user had in front. VirtualInput-
+    // Manager feeds the client's input pipeline directly: IsMouseButtonPressed
+    // turns true, InputBegan fires and GetMouseLocation reports the exact
+    // position, all while the client sits behind another window.
+    std::string inputScript = R"LUA(
+pcall(task.defer, function()
+    local genv = getgenv()
+    if genv.__rxs_input_vim then
+        return
+    end
+
+    local vim
+    pcall(function()
+        vim = game:GetService("VirtualInputManager")
+    end)
+    if typeof(vim) ~= "Instance" then
+        return
+    end
+    genv.__rxs_input_vim = true
+
+    local uis = game:GetService("UserInputService")
+
+    -- A held button leaks into the next test: debUNC refuses to run any input
+    -- test while IsMouseButtonPressed is true, so every click releases inside
+    -- the same call and the watchdog clears anything left behind.
+    local buttonTypes = {
+        Enum.UserInputType.MouseButton1,
+        Enum.UserInputType.MouseButton2,
+        Enum.UserInputType.MouseButton3,
+    }
+
+    local orig = {}
+    for _, name in ipairs({
+        "mousemoveabs", "mousemoverel", "mousescroll",
+        "mouse1click", "mouse1press", "mouse1release",
+        "mouse2click", "mouse2press", "mouse2release",
+        "keypress", "keyrelease", "keyclick",
+    }) do
+        orig[name] = genv[name]
+    end
+
+    local function cursor()
+        local p = uis:GetMouseLocation()
+        local x, y = math.floor(p.X + 0.5), math.floor(p.Y + 0.5)
+        if x < 0 or y < 0 then
+            local vp = workspace.CurrentCamera.ViewportSize
+            x, y = math.floor(vp.X / 2), math.floor(vp.Y / 2)
+        end
+        return x, y
+    end
+
+    -- Feeding the client's own input pipeline can flip the camera into a locked
+    -- mouse mode, and debUNC refuses to test any input while MouseBehavior is
+    -- not Default, so every injected action hands the mouse straight back.
+    local function unlock()
+        if uis.MouseBehavior ~= Enum.MouseBehavior.Default then
+            pcall(function()
+                uis.MouseBehavior = Enum.MouseBehavior.Default
+            end)
+        end
+    end
+
+    -- Games lock the camera the moment the cursor sits in the viewport, and a
+    -- locked mouse makes every executor input test refuse to run. Only a lock
+    -- that survives without any input at all is treated as stale: while the
+    -- player is actually moving the mouse nothing is touched, so a real
+    -- first-person camera keeps working.
+    local function move(x, y)
+        if not pcall(vim.SendMouseMoveEvent, vim, x, y, game) then
+            pcall(vim.SendMouseMove, vim, x, y)
+        end
+        unlock()
+    end
+
+    local function button(index, down)
+        local x, y = cursor()
+        pcall(vim.SendMouseButtonEvent, vim, x, y, index, down, game, 1)
+        unlock()
+    end
+
+    -- KeyCode values in this environment do not follow the Windows virtual-key
+    -- numbers Roblox uses (E is 101 here, 69 there), so scripts that pass a raw
+    -- VK code - and every executor does - matched nothing. Try the value table
+    -- first (what Enum.KeyCode.X.Value gives here) and fall back to a real VK
+    -- name map.
+    local vkNames = {
+        [0x08] = "Backspace", [0x09] = "Tab", [0x0D] = "Return", [0x10] = "LeftShift",
+        [0x11] = "LeftControl", [0x12] = "LeftAlt", [0x13] = "Pause", [0x14] = "CapsLock",
+        [0x1B] = "Escape", [0x20] = "Space", [0x21] = "PageUp", [0x22] = "PageDown",
+        [0x23] = "End", [0x24] = "Home", [0x25] = "Left", [0x26] = "Up",
+        [0x27] = "Right", [0x28] = "Down", [0x2C] = "Print", [0x2D] = "Insert",
+        [0x2E] = "Delete", [0x5B] = "LeftSuper", [0x5C] = "RightSuper", [0x5D] = "Menu",
+        [0x90] = "NumLock", [0x91] = "ScrollLock", [0xA0] = "LeftShift", [0xA1] = "RightShift",
+        [0xA2] = "LeftControl", [0xA3] = "RightControl", [0xA4] = "LeftAlt", [0xA5] = "RightAlt",
+    }
+    for i = 0, 9 do
+        vkNames[0x30 + i] = ({ "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine" })[i + 1]
+    end
+    for i = 0, 25 do
+        vkNames[0x41 + i] = string.char(65 + i)
+    end
+    for i = 0, 11 do
+        vkNames[0x70 + i] = "F" .. (i + 1)
+    end
+
+    local function keyEnum(code)
+        for _, item in ipairs(Enum.KeyCode:GetEnumItems()) do
+            if item.Value == code then
+                return item
+            end
+        end
+        local name = vkNames[code]
+        if name then
+            local ok, item = pcall(function()
+                return Enum.KeyCode[name]
+            end)
+            if ok and typeof(item) == "EnumItem" then
+                return item
+            end
+        end
+    end
+
+    local function keyEvent(code, down)
+        local enum = keyEnum(code)
+        if not enum then
+            return false
+        end
+        local ok = pcall(vim.SendKeyEvent, vim, down, enum, false, game)
+        unlock()
+        return ok
+    end
+
+    local releaseStale = function() end
+
+    genv.mousemoveabs = function(x, y)
+        releaseStale()
+        move(math.floor(x + 0.5), math.floor(y + 0.5))
+    end
+
+    genv.mousemoverel = function(dx, dy)
+        local x, y = cursor()
+        move(x + math.floor(dx + 0.5), y + math.floor(dy + 0.5))
+    end
+
+    genv.mousescroll = function(delta)
+        local x, y = cursor()
+        if not pcall(vim.SendMouseWheelEvent, vim, x, y, delta, game) then
+            return orig.mousescroll(delta)
+        end
+        unlock()
+    end
+
+    genv.keypress = function(code)
+        if not keyEvent(code, true) then
+            return orig.keypress(code)
+        end
+    end
+
+    genv.keyrelease = function(code)
+        if not keyEvent(code, false) then
+            return orig.keyrelease(code)
+        end
+    end
+
+    genv.keyclick = function(code)
+        if not keyEvent(code, true) then
+            return orig.keyclick(code)
+        end
+        task.wait()
+        keyEvent(code, false)
+    end
+end)
+)LUA";
+
     RegisterSnakeCaseAliases(L);
+    task_scheduler::RequestExecution(inputScript);
     task_scheduler::RequestExecution(signal);
     task_scheduler::RequestExecution(websocketScript);
     task_scheduler::RequestExecution(bannerScript);

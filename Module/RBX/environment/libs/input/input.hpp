@@ -22,6 +22,8 @@ namespace Input
     int mousemoverel(lua_State* L);
     int mousemoveabs(lua_State* L);
     int mousescroll(lua_State* L);
+    int inputdiag(lua_State* L);
+    int inputsinject(lua_State* L);
     int keyclick(lua_State* L);
     int gethwid(lua_State* L);
 

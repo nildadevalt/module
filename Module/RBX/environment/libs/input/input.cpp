@@ -16,20 +16,17 @@ namespace
     // straight to the client window works regardless of focus.
     HWND RobloxWindow()
     {
-        // The client window title differs between plain Roblox and Bloxstrap,
-        // and the class name is not stable across versions, so try the known
-        // title first and fall back to enumerating this process's windows.
-        if (HWND byTitle = FindWindowA(nullptr, ("Roblox")))
-            return byTitle;
-
-        if (HWND byClass = FindWindowA(("WINDOWSCLIENT"), nullptr))
-            return byClass;
-
+        // Pick the largest visible top-level window owned by this process: the
+        // game view. The old code trusted the first window whose title was
+        // "Roblox", but the client also creates small hidden windows with that
+        // title, and mapping client coordinates through one of those put every
+        // synthetic cursor move and click outside the real viewport.
         struct Finder
         {
             DWORD pid;
             HWND result;
-        } finder{ GetCurrentProcessId(), nullptr };
+            long bestArea;
+        } finder{ GetCurrentProcessId(), nullptr, 0 };
 
         EnumWindows([](HWND hwnd, LPARAM param) -> BOOL
         {
@@ -38,16 +35,27 @@ namespace
             GetWindowThreadProcessId(hwnd, &pid);
             if (pid != f->pid || !IsWindowVisible(hwnd))
                 return TRUE;
-            // Skip the many hidden helper windows; the game view is the largest.
+
             RECT rc{};
-            GetClientRect(hwnd, &rc);
-            if (rc.right - rc.left < 200 || rc.bottom - rc.top < 200)
+            if (!GetClientRect(hwnd, &rc))
                 return TRUE;
+
+            const long area = (rc.right - rc.left) * (rc.bottom - rc.top);
+            if (rc.right - rc.left < 200 || rc.bottom - rc.top < 200 || area <= f->bestArea)
+                return TRUE;
+
             f->result = hwnd;
-            return FALSE;
+            f->bestArea = area;
+            return TRUE;
         }, reinterpret_cast<LPARAM>(&finder));
 
-        return finder.result;
+        if (finder.result)
+            return finder.result;
+
+        if (HWND byClass = FindWindowA(("WINDOWSCLIENT"), nullptr))
+            return byClass;
+
+        return FindWindowA(nullptr, ("Roblox"));
     }
 
     // Roblox's UserInputService only tracks keys that arrive while its window
@@ -92,6 +100,27 @@ namespace
         PostMessageA(hwnd, message, key, scan | extra);
     }
 
+    // Synthetic clicks only register when the cursor actually sits inside the
+    // game's client area, so park it in the middle of the viewport first when
+    // it is somewhere else (other monitor, over another window, off-screen).
+    void EnsureCursorInClient(HWND hwnd)
+    {
+        RECT rc{};
+        POINT p{};
+        if (!GetClientRect(hwnd, &rc) || !GetCursorPos(&p))
+            return;
+
+        POINT client = p;
+        ScreenToClient(hwnd, &client);
+        if (client.x >= 0 && client.y >= 0 && client.x < rc.right && client.y < rc.bottom)
+            return;
+
+        client.x = (rc.right - rc.left) / 2;
+        client.y = (rc.bottom - rc.top) / 2;
+        ClientToScreen(hwnd, &client);
+        SetCursorPos(client.x, client.y);
+    }
+
     void PostMouse(UINT message, WPARAM flags, int x, int y)
     {
         HWND hwnd = RobloxWindow();
@@ -102,31 +131,27 @@ namespace
 
         if (message == WM_MOUSEMOVE)
         {
-            // Client-relative target -> screen coordinates for SendInput.
+            // Roblox samples the real cursor, so SetCursorPos alone is what the
+            // game sees. The previous SendInput(MOUSEEVENTF_ABSOLUTE) pair used
+            // the already-converted screen point as if it were a 0..65535
+            // fraction, which threw the cursor to a corner and pinned it there:
+            // every mouse test then read one frozen GetMouseLocation value.
+            RECT rc{};
+            if (GetClientRect(hwnd, &rc) && rc.right > 0 && rc.bottom > 0)
+            {
+                if (x < 0) x = 0;
+                if (y < 0) y = 0;
+                if (x > rc.right - 1) x = rc.right - 1;
+                if (y > rc.bottom - 1) y = rc.bottom - 1;
+            }
+
             POINT screen{ x, y };
             ClientToScreen(hwnd, &screen);
             SetCursorPos(screen.x, screen.y);
-
-            INPUT in{};
-            in.type = INPUT_MOUSE;
-            in.mi.dx = screen.x;
-            in.mi.dy = screen.y;
-            in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE |
-                MOUSEEVENTF_VIRTUALDESK;
-            in.mi.dwExtraInfo = 0;
-
-            const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-            const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-            const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-            const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-            if (vw > 1 && vh > 1)
-            {
-                in.mi.dx = ((screen.x - vx) * 65535) / (vw - 1);
-                in.mi.dy = ((screen.y - vy) * 65535) / (vh - 1);
-                SendInput(1, &in, sizeof(INPUT));
-            }
+            return;
         }
 
+        EnsureCursorInClient(hwnd);
         PostMessageA(hwnd, message, flags, MAKELPARAM(x, y));
     }
 }
@@ -326,6 +351,59 @@ int Input::mousemoveabs(lua_State* L)
     return 0;
 }
 
+int Input::inputdiag(lua_State* L)
+{
+    HWND hwnd = RobloxWindow();
+    RECT rc{};
+    POINT origin{ 0, 0 }, cursor{};
+    if (hwnd)
+    {
+        GetClientRect(hwnd, &rc);
+        ClientToScreen(hwnd, &origin);
+    }
+    GetCursorPos(&cursor);
+
+    HWND fg = GetForegroundWindow();
+    char fgTitle[128]{};
+    if (fg)
+        GetWindowTextA(fg, fgTitle, sizeof(fgTitle) - 1);
+
+    lua_newtable(L);
+    lua_pushboolean(L, hwnd != nullptr);              lua_setfield(L, -2, "found");
+    lua_pushboolean(L, hwnd && fg == hwnd);           lua_setfield(L, -2, "foreground");
+    lua_pushstring(L, fgTitle);                       lua_setfield(L, -2, "fg_title");
+    lua_pushinteger(L, rc.right - rc.left);           lua_setfield(L, -2, "client_w");
+    lua_pushinteger(L, rc.bottom - rc.top);           lua_setfield(L, -2, "client_h");
+    lua_pushinteger(L, origin.x);                     lua_setfield(L, -2, "origin_x");
+    lua_pushinteger(L, origin.y);                     lua_setfield(L, -2, "origin_y");
+    lua_pushinteger(L, cursor.x);                     lua_setfield(L, -2, "cursor_x");
+    lua_pushinteger(L, cursor.y);                     lua_setfield(L, -2, "cursor_y");
+    return 1;
+}
+
+int Input::inputsinject(lua_State* L)
+{
+    HWND hwnd = RobloxWindow();
+    if (!hwnd)
+        return 0;
+
+    // Force the client truly to the front, then report whether Windows agreed.
+    ShowWindow(hwnd, SW_RESTORE);
+    const DWORD targetThread = GetWindowThreadProcessId(hwnd, nullptr);
+    const DWORD thisThread = GetCurrentThreadId();
+    if (targetThread != thisThread)
+        AttachThreadInput(thisThread, targetThread, TRUE);
+    BringWindowToTop(hwnd);
+    SetForegroundWindow(hwnd);
+    SetActiveWindow(hwnd);
+    SetFocus(hwnd);
+    if (targetThread != thisThread)
+        AttachThreadInput(thisThread, targetThread, FALSE);
+
+    lua_pushboolean(L, GetForegroundWindow() == hwnd);
+    return 1;
+}
+
 int Input::mousescroll(lua_State* L)
 {
     int delta = luaL_checkinteger(L, 1);
@@ -334,9 +412,26 @@ int Input::mousescroll(lua_State* L)
     if (!hwnd)
         return 0;
 
-    // WM_MOUSEWHEEL takes the delta in the high word of wParam.
+    BringClientForeground(hwnd);
+    EnsureCursorInClient(hwnd);
+
+    // A real wheel injection is what UserInputService reacts to; the window
+    // message is only kept as a mirror for handlers that read wParam.
+    INPUT in{};
+    in.type = INPUT_MOUSE;
+    in.mi.mouseData = static_cast<DWORD>(delta * WHEEL_DELTA);
+    in.mi.dwFlags = MOUSEEVENTF_WHEEL;
+    SendInput(1, &in, sizeof(INPUT));
+
+    // Mirror the message for handlers that read wParam: the injected wheel only
+    // updates the input queue, and window-proc based code never sees it.
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    ScreenToClient(hwnd, &cursor);
+
     PostMessageA(hwnd, WM_MOUSEWHEEL,
-        MAKEWPARAM(0, static_cast<WORD>(delta * WHEEL_DELTA)), 0);
+        MAKEWPARAM(0, static_cast<WORD>(delta * WHEEL_DELTA)),
+        MAKELPARAM(cursor.x, cursor.y));
     return 0;
 }
 
@@ -389,5 +484,7 @@ void Input::register_lib(lua_State* L)
     Environment->make_global(L, ("mouse2release"), Input::mouse2release, Input::funcnameinc++);
     Environment->make_global(L, ("mousemoverel"), Input::mousemoverel, Input::funcnameinc++);
     Environment->make_global(L, ("mousemoveabs"), Input::mousemoveabs, Input::funcnameinc++);
+    Environment->make_global(L, ("__inputdiag"), Input::inputdiag, Input::funcnameinc++);
+    Environment->make_global(L, ("__inputsinject"), Input::inputsinject, Input::funcnameinc++);
     Environment->make_global(L, ("mousescroll"), Input::mousescroll, Input::funcnameinc++);
 }

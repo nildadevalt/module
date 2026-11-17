@@ -8334,7 +8334,26 @@ if LogPath then
 end
 ]==]
 
+getgenv().__rxs_unlock_mouse = true
+
 local ok, err = pcall(function()
+    task.spawn(function()
+        local uis = game:GetService("UserInputService")
+        local last = nil
+        while true do
+            local mb = uis.MouseBehavior
+            local b1 = uis:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+            local b2 = uis:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+            local b3 = uis:IsMouseButtonPressed(Enum.UserInputType.MouseButton3)
+            local cur = string.format("%s|%s%s%s", tostring(mb), tostring(b1), tostring(b2), tostring(b3))
+            if cur ~= last then
+                print(string.format("[MON] t=%.2f %s", os.clock(), cur))
+                last = cur
+            end
+            task.wait(0.05)
+        end
+    end)
+
     local fn, loadErr = loadstring(__debUNC_SOURCE)
     if not fn then error("loadstring failed: " .. tostring(loadErr)) end
     fn()
