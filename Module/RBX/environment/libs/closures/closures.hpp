@@ -2401,14 +2401,26 @@ namespace Closures
 
     inline int gettenv(lua_State* L) {
         
-        if (!lua_isthread(L, 1)) {
+        // With no argument the calling thread's environment is returned, which is
+        // what getfenv(0) gives. A finished thread still reports its environment.
+        lua_State* thread = L;
+        if (lua_isthread(L, 1))
+        {
+            thread = lua_tothread(L, 1);
+        }
+        else if (!lua_isnoneornil(L, 1))
+        {
             lua_pushnil(L);
             return 1;
         }
 
-        lua_State* thread = lua_tothread(L, 1);
         if (!thread) {
             lua_pushnil(L);
+            return 1;
+        }
+
+        if (thread == L) {
+            lua_pushvalue(L, LUA_GLOBALSINDEX);
             return 1;
         }
 

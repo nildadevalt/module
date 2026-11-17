@@ -217,9 +217,12 @@ static int buffer_writestring(lua_State* L)
 {
     size_t len = 0;
     void* buf = luaL_checkbuffer(L, 1, &len);
-    int offset = luaL_checkinteger(L, 2);
+    // Roblox order: (buffer, string, offset [, count]). The offset used to be
+    // read from argument 2, so writestring(b, "abc", 0) raised
+    // "argument #2 ... number expected" and every AsBuffer was empty.
     size_t size = 0;
-    const char* val = luaL_checklstring(L, 3, &size);
+    const char* val = luaL_checklstring(L, 2, &size);
+    int offset = luaL_checkinteger(L, 3);
     int count = luaL_optinteger(L, 4, int(size));
 
     luaL_argcheck(L, count >= 0, 4, "count");

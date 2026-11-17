@@ -364,18 +364,21 @@ inline int module::core::environment::c_http::http_get(lua_State* L)
 
             return [result](lua_State* L) -> int
                 {
+                    // A failed request must not look like a successful body. Raising
+                    // from this resume callback surfaces as "resume callback raised a
+                    // native exception", so report nil plus the reason instead.
                     if (!result.success)
                     {
-                        lua_pushstring(L, (("http_get failed: ") + result.error).c_str());
-                        return 1;
+                        lua_pushnil(L);
+                        lua_pushstring(L, result.error.empty() ? ("request failed") : result.error.c_str());
+                        return 2;
                     }
 
                     if (result.status_code != 200)
                     {
-                        std::stringstream err;
-                        err << ("http_get returned status: ") << result.status_code;
-                        lua_pushstring(L, err.str().c_str());
-                        return 1;
+                        lua_pushnil(L);
+                        lua_pushfstring(L, ("HTTP %d"), result.status_code);
+                        return 2;
                     }
 
                     lua_pushlstring(L, result.body.data(), result.body.size());

@@ -210,26 +210,17 @@ namespace Raknet
             lua_setfield(L, -2, ("ItemId"));
         }
 
-        // AsBuffer via Roblox's buffer.create + buffer.writestring (avoids Luau2/Roblox Buffer struct mismatch)
+        // AsBuffer: build it with buffer.fromstring. writestring's argument
+        // order differs between Luau versions (offset-first in Roblox's own
+        // build, string-first upstream), so calling it made every AsBuffer an
+        // empty, all-zero buffer that did not match AsString.
         lua_getglobal(L, ("buffer"));
         if (lua_istable(L, -1)) {
-            lua_getfield(L, -1, ("create"));
+            lua_getfield(L, -1, ("fromstring"));
             if (lua_isfunction(L, -1)) {
-                lua_pushinteger(L, (int)size);
+                lua_pushlstring(L, reinterpret_cast<const char*>(bytes), size);
                 if (lua_pcall(L, 1, 1, 0) == LUA_OK) {
-                    if (size > 0) {
-                        lua_getfield(L, -2, ("writestring"));
-                        if (lua_isfunction(L, -1)) {
-                            lua_pushvalue(L, -2);
-                            lua_pushlstring(L, reinterpret_cast<const char*>(bytes), size);
-                            lua_pushinteger(L, 0);
-                            if (lua_pcall(L, 3, 0, 0) != LUA_OK)
-                                lua_pop(L, 1);
-                        } else {
-                            lua_pop(L, 1);
-                        }
-                    }
-                    lua_remove(L, -2); // remove buffer table
+                    lua_remove(L, -2); // drop the buffer table
                     lua_setfield(L, -2, ("AsBuffer"));
                 } else {
                     lua_pop(L, 2);
@@ -1107,7 +1098,42 @@ namespace Raknet
     int raknet_send_raw(lua_State* L)
     {
         size_t dataLen = 0;
-        const char* data = luaL_checklstring(L, 1, &dataLen);
+        const char* data = nullptr;
+        std::string bufferCopy;
+
+        // debUNC sends both a string and a buffer made with buffer.fromstring,
+        // so convert a buffer through buffer.tostring before asking for a string.
+        if (lua_type(L, 1) != LUA_TSTRING)
+        {
+            lua_getglobal(L, ("buffer"));
+            if (lua_istable(L, -1))
+            {
+                lua_getfield(L, -1, ("tostring"));
+                if (lua_isfunction(L, -1))
+                {
+                    lua_pushvalue(L, 1);
+                    if (lua_pcall(L, 1, 1, 0) == LUA_OK && lua_isstring(L, -1))
+                    {
+                        bufferCopy = lua_tostring(L, -1);
+                        data = bufferCopy.data();
+                        dataLen = bufferCopy.size();
+                    }
+                    lua_pop(L, 1);
+                }
+                else
+                {
+                    lua_pop(L, 1);
+                }
+                lua_pop(L, 1);
+            }
+            else
+            {
+                lua_pop(L, 1);
+            }
+        }
+
+        if (!data)
+            data = luaL_checklstring(L, 1, &dataLen);
 
         int priority = (int)luaL_optinteger(L, 2, HIGH_PRIORITY);
         int reliability = (int)luaL_optinteger(L, 3, RELIABLE_ORDERED);

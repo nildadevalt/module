@@ -1075,18 +1075,14 @@ namespace Debug
         int level = (int)luaL_checkinteger(L, 1);
 
         // SehGuard wrapper adds 1 stack frame â€” adjust
-        level += 1;
-
+        // debug.info reads levels without an offset, so isvalidlevel must too,
+        // otherwise the last real level reported by info is refused here.
         lua_Debug ar;
-        bool valid = lua_getinfo(L, level, ("f"), &ar) != 0;
-        if (valid && lua_isfunction(L, -1))
-        {
-            lua_pushboolean(L, 1);
-        }
-        else
-        {
-            lua_pushboolean(L, 0);
-        }
+        bool valid = lua_getinfo(L, level, ("f"), &ar) != 0 && lua_isfunction(L, -1);
+        if (valid)
+            lua_pop(L, 1); // lua_getinfo pushed the function
+
+        lua_pushboolean(L, valid ? 1 : 0);
         return 1;
     }
 
@@ -1122,6 +1118,9 @@ namespace Debug
             // line
             lua_pushinteger(L, ar.currentline > 0 ? ar.currentline : ar.linedefined);
             lua_setfield(L, -2, "line");
+
+            lua_pushinteger(L, ar.currentline);
+            lua_setfield(L, -2, "currentline");
 
             // name
             if (ar.name)

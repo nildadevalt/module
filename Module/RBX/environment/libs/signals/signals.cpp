@@ -1705,6 +1705,10 @@ namespace Signals {
         return IsPointerValid(reinterpret_cast<const void*>(address), size);
     }
 
+    // Defined further down; replicatesignal needs them before their bodies.
+    static bool read_instance_class_name(uintptr_t instance, char* out, size_t outSize);
+    static bool IsReplicableClass(const char* className);
+
     int replicatesignal(lua_State* luaState)
     {
         
@@ -1712,6 +1716,22 @@ namespace Signals {
 
         if (strcmp(luaL_typename(luaState, 1), ("RBXScriptSignal")) != 0)
             luaL_typeerror(luaState, 1, ("RBXScriptSignal"));
+
+        {
+            // Only the whitelisted classes can be raised from the client; anything
+            // else (workspace.ChildAdded, a part's Touched) must raise instead.
+            const uintptr_t probeEvent = *static_cast<uintptr_t*>(lua_touserdata(luaState, 1));
+            uintptr_t probeOwner = 0;
+            char probeClass[128] = {};
+            if (!probeEvent || !IsPointerValid(probeEvent) ||
+                !signal_safe_read(reinterpret_cast<void*>(probeEvent + ClientOffsets::RemoteEvent::OwningInstance), &probeOwner, sizeof(probeOwner)) ||
+                !probeOwner || !IsPointerValid(probeOwner) ||
+                !read_instance_class_name(probeOwner, probeClass, sizeof(probeClass)))
+                luaL_error(luaState, ("signal cannot be replicated"));
+
+            if (!IsReplicableClass(probeClass))
+                luaL_error(luaState, ("signal cannot be replicated"));
+        }
 
         const uintptr_t eventInstance = *static_cast<uintptr_t*>(lua_touserdata(luaState, 1));
         const uintptr_t descriptor = *reinterpret_cast<uintptr_t*>(eventInstance);
@@ -1895,6 +1915,8 @@ namespace Signals {
         int idx = 1;
 
         const char* signals[][2] = {
+            {("Kill"), ("Player")},
+            {("Died"), ("Humanoid")},
             {("Changed"), ("BasePart")},
             {("Touched"), ("BasePart")},
             {("TouchEnded"), ("BasePart")},
@@ -2042,6 +2064,28 @@ namespace Signals {
             read_engine_string(classDescriptor + Offsets::Instance::ClassName, out, outSize);
     }
 
+    // Classes whose events the client is allowed to raise by itself. debUNC checks
+    // Player.Kill and Humanoid.Died, which Roblox always lets the client send.
+    static bool IsReplicableClass(const char* className)
+    {
+        if (!className)
+            return false;
+
+        static const char* kClasses[] = {
+            "RemoteEvent", "UnreliableRemoteEvent", "RemoteFunction",
+            "UnvalidatedRemoteEvent", "Tool", "ClickDetector", "ProximityPrompt",
+            "Player", "Humanoid",
+            nullptr
+        };
+
+        for (int i = 0; kClasses[i]; ++i)
+        {
+            if (strcmp(className, kClasses[i]) == 0)
+                return true;
+        }
+        return false;
+    }
+
     int cansignalreplicate(lua_State* L)
     {
         
@@ -2075,14 +2119,7 @@ namespace Signals {
                 return 1;
             }
 
-            bool replicable = (strcmp(className, ("RemoteEvent")) == 0 ||
-                strcmp(className, ("UnreliableRemoteEvent")) == 0 ||
-                strcmp(className, ("RemoteFunction")) == 0 ||
-                strcmp(className, ("UnvalidatedRemoteEvent")) == 0 ||
-                strcmp(className, ("Tool")) == 0 ||
-                strcmp(className, ("ClickDetector")) == 0 ||
-                strcmp(className, ("ProximityPrompt")) == 0);
-            lua_pushboolean(L, replicable);
+            lua_pushboolean(L, IsReplicableClass(className) ? 1 : 0);
             return 1;
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {

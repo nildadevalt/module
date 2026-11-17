@@ -287,6 +287,41 @@ namespace Filesystem
         return 1;
     }
 
+    // debUNC checks that scripts cannot drop a runnable file such as .exe or .psm1
+    // on disk, so refuse program extensions at both write entry points.
+    static bool IsProgramExtension(const wchar_t* path)
+    {
+        static const wchar_t* kExts[] = {
+            L".exe", L".com", L".bat", L".cmd", L".ps1", L".psm1", L".psd1",
+            L".vbs", L".vbe", L".js", L".jse", L".wsf", L".wsh", L".msi",
+            L".scr", L".lnk", L".hta", L".cpl", L".dll", L".sys", L".reg",
+            L".jar", L".msc", L".pif", L".gadget", L".application", L".appx",
+            L".msix", L".inf", L".scf", L".shb", L".pyw", L".vb",
+            nullptr
+        };
+
+        std::wstring str(path ? path : L"");
+        for (size_t i = 0; i < str.size(); ++i)
+            str[i] = (wchar_t)towlower(str[i]);
+
+        // Windows treats "file.exe::$DATA" as the file itself, so drop a stream suffix.
+        size_t stream = str.find(L':', 2);
+        if (stream != std::wstring::npos)
+            str.erase(stream);
+
+        // A trailing dot or space is ignored by Windows: "file.exe." is "file.exe".
+        while (!str.empty() && (str.back() == L'.' || str.back() == L' '))
+            str.pop_back();
+
+        for (int i = 0; kExts[i]; ++i)
+        {
+            std::wstring ext(kExts[i]);
+            if (str.size() > ext.size() && str.compare(str.size() - ext.size(), ext.size(), ext) == 0)
+                return true;
+        }
+        return false;
+    }
+
     int writefile(lua_State* L)
     {
         luaL_checktype(L, 2, LUA_TSTRING);
@@ -294,6 +329,7 @@ namespace Filesystem
         wchar_t path[MAX_PATH_W] = {};
         if (!ResolvePath(L, 1, path, MAX_PATH_W, &err)) return Err(L, err);
         if (IsBlocked(path)) return Err(L, ("Unsafe function"));
+        if (IsProgramExtension(path)) return Err(L, ("Writing program files is not allowed"));
         size_t len = 0; const char* data = luaL_checklstring(L, 2, &len);
         if (!FileIO(path, nullptr, nullptr, data, len, false)) return Err(L, ("Failed to write file"));
         return 0;
@@ -306,6 +342,7 @@ namespace Filesystem
         wchar_t path[MAX_PATH_W] = {};
         if (!ResolvePath(L, 1, path, MAX_PATH_W, &err)) return Err(L, err);
         if (IsBlocked(path)) return Err(L, ("Unsafe function"));
+        if (IsProgramExtension(path)) return Err(L, ("Writing program files is not allowed"));
         size_t len = 0; const char* data = luaL_checklstring(L, 2, &len);
         if (!FileIO(path, nullptr, nullptr, data, len, true)) return Err(L, ("Failed to append file"));
         return 0;
@@ -575,6 +612,7 @@ namespace Filesystem
         wchar_t src[MAX_PATH_W] = {}, dst[MAX_PATH_W] = {};
         if (!ResolvePath(L, 1, src, MAX_PATH_W, &err)) return Err(L, err);
         if (!ResolvePath(L, 2, dst, MAX_PATH_W, &err)) return Err(L, err);
+        if (IsProgramExtension(dst)) return Err(L, ("Writing program files is not allowed"));
 
         DWORD a = GetFileAttributesW(src);
         if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_DIRECTORY))
@@ -596,6 +634,7 @@ namespace Filesystem
         wchar_t src[MAX_PATH_W] = {}, dst[MAX_PATH_W] = {};
         if (!ResolvePath(L, 1, src, MAX_PATH_W, &err)) return Err(L, err);
         if (!ResolvePath(L, 2, dst, MAX_PATH_W, &err)) return Err(L, err);
+        if (IsProgramExtension(dst)) return Err(L, ("Writing program files is not allowed"));
 
         DWORD a = GetFileAttributesW(src);
         if (a == INVALID_FILE_ATTRIBUTES)
