@@ -557,66 +557,8 @@ end
     // console shows the executor is alive without needing to run a script.
     std::string bannerScript = R"LUA(
 pcall(task.defer, function()
-    local function say(msg)
-        local out = (typeof(print) == "function") and print or warn
-        pcall(out, msg)
-    end
-    say("Module are working")
-    local lastInput = os.clock()
-
-    -- Button identity for the stuck-button watchdog: the VirtualInputManager
-    -- wants the 1/2/3 button number, UserInputService wants the enum.
-    local mouseButtons = {
-        { uis = Enum.UserInputType.MouseButton1, id = 1 },
-        { uis = Enum.UserInputType.MouseButton2, id = 2 },
-        { uis = Enum.UserInputType.MouseButton3, id = 3 },
-    }
-    for _, signal in ipairs({ uis.InputBegan, uis.InputChanged, uis.InputEnded }) do
-        pcall(function()
-            signal:Connect(function()
-                lastInput = os.clock()
-            end)
-        end)
-    end
-
-    task.spawn(function()
-        while true do
-            task.wait(0.1)
-            -- Only when a test harness asked for it: unlocking during normal play
-            -- would fight a game's first-person camera.
-            if not genv.__rxs_unlock_mouse then
-                continue
-            end
-
-            local idle = os.clock() - lastInput
-
-            -- The wheel notch the VirtualInputManager emulates only ever zooms
-            -- in, so a couple of scroll tests parked the camera in first person
-            -- and the camera module then locked the mouse, skipping every input
-            -- test after it. Keep the camera at the far end of third person.
-            if idle > 0.4 then
-                pcall(function()
-                    local player = game:GetService("Players").LocalPlayer
-                    if player then
-                        -- Only raise the ceiling, never the floor: the wheel
-                        -- tests need room to scroll in without reaching first
-                        -- person, but the player's own view is left alone.
-                        if player.CameraMaxZoomDistance < 1024 then
-                            player.CameraMaxZoomDistance = 1024
-                        end
-                    end
-                end)
-            end
-
-            if idle > 0.4 and uis.MouseBehavior ~= Enum.MouseBehavior.Default then
-                pcall(function()
-                    uis.MouseBehavior = Enum.MouseBehavior.Default
-                end)
-            end
-
-        end
-    end)
-
+    local out = (typeof(print) == "function") and print or warn
+    pcall(out, "Module are working")
 end)
 )LUA";
 
@@ -941,6 +883,49 @@ pcall(task.defer, function()
         task.wait()
         keyEvent(code, false)
     end
+    -- Idle watchdog. Only active when a test harness asks for it, because
+    -- forcing MouseBehavior or the zoom ceiling during normal play would fight
+    -- the game's own camera.
+    local lastInput = os.clock()
+    for _, signal in ipairs({ uis.InputBegan, uis.InputChanged, uis.InputEnded }) do
+        pcall(function()
+            signal:Connect(function()
+                lastInput = os.clock()
+            end)
+        end)
+    end
+
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+
+            if not genv.__rxs_unlock_mouse then
+                continue
+            end
+
+            local idle = os.clock() - lastInput
+            if idle <= 0.4 then
+                continue
+            end
+
+            -- The wheel notch VirtualInputManager emulates only zooms in, so a
+            -- couple of scroll tests used to park the camera in first person,
+            -- where the camera module locks the mouse and every following input
+            -- test is skipped. Leave room to scroll by raising the ceiling only.
+            pcall(function()
+                local player = game:GetService("Players").LocalPlayer
+                if player and player.CameraMaxZoomDistance < 1024 then
+                    player.CameraMaxZoomDistance = 1024
+                end
+            end)
+
+            if uis.MouseBehavior ~= Enum.MouseBehavior.Default then
+                pcall(function()
+                    uis.MouseBehavior = Enum.MouseBehavior.Default
+                end)
+            end
+        end
+    end)
 end)
 )LUA";
 
