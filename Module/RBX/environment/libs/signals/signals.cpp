@@ -122,6 +122,24 @@ namespace Signals {
 inline std::unordered_map<std::uintptr_t, CachedConnectionTable> g_connection_cache;
 inline std::unordered_set<std::uintptr_t> g_fired_connections;
 
+// :Disconnect() disabled the connection but left it in the engine's slot list,
+// so getconnections kept returning it. Remember the pointer (scoped to the
+// current state generation) and skip it everywhere connections are listed.
+inline std::unordered_set<std::uintptr_t> g_disconnected_connections;
+inline uint64_t g_disconnected_generation = 0;
+
+static bool connection_is_disconnected(std::uintptr_t connection)
+{
+    const uint64_t generation = Shared::StateGeneration.load();
+    if (generation != g_disconnected_generation)
+    {
+        g_disconnected_connections.clear();
+        g_disconnected_generation = generation;
+        return false;
+    }
+    return g_disconnected_connections.count(connection) > 0;
+}
+
 static std::uintptr_t get_weak_object_via_chain(std::uintptr_t signalPtr) {
     std::uintptr_t val0 = 0;
     if (!signal_safe_read(reinterpret_cast<void*>(signalPtr + 0x68), &val0, sizeof(val0)))
@@ -366,6 +384,9 @@ static int conn_disconnect(lua_State* L) {
     if (!con || !con->connection) return 0;
     set_enabled(con, 0);
     con->IsValid = false;
+
+    connection_is_disconnected(0); // refresh the generation scoped set
+    g_disconnected_connections.insert(con->connection);
     const auto cached = g_connection_cache.find(con->connection);
     if (cached != g_connection_cache.end()) {
         if (cached->second.generation == Shared::StateGeneration.load() && cached->second.ref > 0)
@@ -667,6 +688,7 @@ namespace Signals {
         };
 
         uintptr_t internal_conn = reinterpret_cast<connection_struct*>(conn_ptr)->connection;
+        tc.Internal = internal_conn;
         TrackedConnectionsByConn[internal_conn] = tc;
 
         if (identity) {
@@ -738,6 +760,8 @@ namespace Signals {
         for (const TrackedConnection& connection : found->second)
         {
             if (connection.Generation != generation)
+                continue;
+            if (connection_is_disconnected(connection.Internal))
                 continue;
 
             lua_newtable(L);
@@ -1112,6 +1136,7 @@ namespace Signals {
         for (int i = 0; i < walkResult.walked.count; i++) {
             const uintptr_t signal = walkResult.walked.connections[i];
             if (connection_once_state(signal)) continue;
+            if (connection_is_disconnected(signal)) continue;
 
             bool pushed = false;
             const auto cached = g_connection_cache.find(signal);

@@ -23,6 +23,7 @@ namespace Signals {
         int FunctionRef = -2;
         int ThreadRef = -2;
         uint64_t Generation = 0;
+        uintptr_t Internal = 0;   // engine connection pointer, for :Disconnect() filtering
     };
 
     extern std::unordered_map<uintptr_t, std::vector<TrackedConnection>> TrackedConnectionsBySignal;
