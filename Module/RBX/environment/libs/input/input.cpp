@@ -68,14 +68,41 @@ namespace
         if (!hwnd || GetForegroundWindow() == hwnd)
             return;
 
-        // AttachThreadInput is required to legally call SetForegroundWindow
-        // from a background process.
-        const DWORD targetThread = GetWindowThreadProcessId(hwnd, nullptr);
+        // SetForegroundWindow is refused for a background process unless its
+        // input queue is attached to the thread that currently owns the
+        // foreground window, so attach to *that* thread before asking (the
+        // previous code attached to the target thread, which never grants the
+        // permission, so focus stealing silently failed and every synthetic
+        // click and key landed in whatever app the user had in front).
         const DWORD thisThread = GetCurrentThreadId();
-        AttachThreadInput(thisThread, targetThread, TRUE);
+        HWND fg = GetForegroundWindow();
+        const DWORD fgThread = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
+        const DWORD targetThread = GetWindowThreadProcessId(hwnd, nullptr);
+
+        const bool attachFg = fgThread && fgThread != thisThread &&
+            AttachThreadInput(thisThread, fgThread, TRUE);
+        const bool attachTarget = targetThread && targetThread != thisThread &&
+            targetThread != fgThread && AttachThreadInput(thisThread, targetThread, TRUE);
+
         SetForegroundWindow(hwnd);
+        BringWindowToTop(hwnd);
         SetFocus(hwnd);
-        AttachThreadInput(thisThread, targetThread, FALSE);
+
+        if (attachTarget)
+            AttachThreadInput(thisThread, targetThread, FALSE);
+        if (attachFg)
+            AttachThreadInput(thisThread, fgThread, FALSE);
+    }
+
+    // Diagnostics / shim helper: try to make the client the foreground window
+    // and report whether the attempt succeeded.
+    bool FocusClient()
+    {
+        HWND hwnd = RobloxWindow();
+        if (!hwnd)
+            return false;
+        BringClientForeground(hwnd);
+        return GetForegroundWindow() == hwnd;
     }
 
     void PostKey(UINT message, WPARAM key, LPARAM extra = 0)
@@ -486,5 +513,13 @@ void Input::register_lib(lua_State* L)
     Environment->make_global(L, ("mousemoveabs"), Input::mousemoveabs, Input::funcnameinc++);
     Environment->make_global(L, ("__inputdiag"), Input::inputdiag, Input::funcnameinc++);
     Environment->make_global(L, ("__inputsinject"), Input::inputsinject, Input::funcnameinc++);
+    Environment->make_global(L, ("__focus_client"), +[](lua_State* L) -> int
+    {
+        // Try to pull the client window to the front. Only when this succeeds is
+        // SendInput routed at the game; otherwise the shim keeps using the
+        // VirtualInputManager path, which works while unfocused.
+        lua_pushboolean(L, FocusClient());
+        return 1;
+    }, Input::funcnameinc++);
     Environment->make_global(L, ("mousescroll"), Input::mousescroll, Input::funcnameinc++);
 }

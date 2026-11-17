@@ -636,15 +636,13 @@ pcall(function()
             if hid(fn) then any = true break end
         end
         if not any then return raw_tb(msg, level) end
-        local out = typeof(msg) == "string" and (msg .. "
-") or ""
+        local out = typeof(msg) == "string" and (msg .. "\n") or ""
         for a = 1, 250 do
             local fn = raw_info(a, "f")
             if fn == nil then break end
             if not hid(fn) then
                 local pos = raw_info(a, "sl")
-                if pos and pos ~= "" then out = out .. pos .. "
-" end
+                if pos and pos ~= "" then out = out .. pos .. "\n" end
             end
         end
         return out
@@ -805,12 +803,21 @@ pcall(task.defer, function()
         move(math.floor(x + 0.5), math.floor(y + 0.5))
     end
 
+    -- kept for diagnostics: the raw OS wheel path (SendInput + window message)
+    genv.__mousescroll_os = orig.mousescroll
+
     genv.mousemoverel = function(dx, dy)
         local x, y = cursor()
         move(x + math.floor(dx + 0.5), y + math.floor(dy + 0.5))
     end
 
     genv.mousescroll = function(delta)
+        -- VirtualInputManager drops the wheel sign: every notch arrives as +1,
+        -- so a scroll down zoomed in exactly like a scroll up. The real Win32
+        -- wheel keeps the sign, but only when the game owns the foreground.
+        if __focus_client and __focus_client() then
+            return orig.mousescroll(delta)
+        end
         local x, y = cursor()
         if not pcall(vim.SendMouseWheelEvent, vim, x, y, delta, game) then
             return orig.mousescroll(delta)
