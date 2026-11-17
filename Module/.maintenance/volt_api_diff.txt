@@ -1,0 +1,617 @@
+# API surface diff: Volt module (Real.dll) vs Paradox module
+## A. same function, different spelling (450)
+ABCDEFGHIJKLMNOPQRSTUVWXYZ <- abcdefghijklmnopqrstuvwxyz
+AHE3 <- AhE3
+APOP <- +APOP
+AUTH <- AUTH=
+ApE3 <- apE3
+Attachment <- attachment
+Block <- block
+CHE3 <- ChE3
+CHHc <- ChHc
+CLOSE <- #CLOSE
+CPE3 <- CpE3
+Clone <- clone
+Close <- #CLOSE
+Connected <- connected
+Count <- count
+DISCONNECT <- Disconnect
+Debug <- debug
+Decompile <- decompile
+Disabled <- disabled
+ESCAPE <- Escape
+E_H3 <- E"H3
+EaH3 <- EAH3
+EbH3 <- EBH3
+Editor <- ##editor
+EiH3 <- EIH3
+EjH3 <- EJH3
+EkH3 <- EKH3
+ElH3 <- ELH3
+EmH3 <- EMH3
+EnH3 <- ENH3
+Error <- error
+ExE3 <- EXE3
+FHE3 <- FH:E3
+False <- false
+GHHc <- GhHc
+GLE3 <- GL$(E3
+H93t <- \$H93t
+H98t <- H9\$8t
+H9_0 <- H9\$0
+HAPPY_EYEBALLS <- HAPPY-EYEBALLS
+HTTPS_PROXY <- HTTPS-proxy
+HcE_H <- HcE`H
+Home <- HOME
+INSERT <- insert
+INST <- inst_
+Info <- info
+Input <- ##input
+Insert <- insert
+IsFile <- isfile
+IsFolder <- isfolder
+KHE3 <- KhE3
+LSHIFT <- lshift
+List <- LIST
+Loaded <- loaded
+MHfA <- mHfA
+MOE3 <- moE3
+MULTI <- multi
+MakeFolder <- makefolder
+MoE3 <- moE3
+NEGOTIATE <- Negotiate
+NETRC <- .netrc
+NHE3 <- NhE3
+NONE <- (none)
+NULL <- null}
+None <- (none)
+Number <- number
+OHE3 <- oh E3
+Offset <- offset
+Options <- OPTIONS
+PASS <- pass
+PING <- Ping
+PacketID <- PacketId
+Path <- path
+Pause <- PAUSE
+READ <- read
+RETURN <-                 return {
+RSHIFT <- rshift
+RakNet <- raknet
+Random <- random
+Read <- read
+Rename <- rename
+SATAUH <- @SATAUH
+SATAWH <- @SATAWH
+SAVH <- @SAVH
+SIZE <- Size
+SMTPUTF8 <-  SMTPUTF8
+SOCKS <- socks
+SPACE <- space
+SUVATAUAVAWH <- @SUVATAUAVAWH
+SUVATAUH <- @SUVATAUH
+SUVAUAVH <- @SUVAUAVH
+SUVWATAUAWH <- @SUVWATAUAWH
+SUVWATAWH <- @SUVWATAWH
+SUVWATH <- @SUVWATH
+SUVWAWH <- @SUVWAWH
+SVWAUAVAWH <- @SVWAUAVAWH
+SVWAUH <- @SVWAUH
+SWATAUAWH <- @SWATAUAWH
+SWAVAWH <- @SWAVAWH
+Space <- space
+Status <- STATUS
+TEXT <- ##Text
+TIMEOUT <- Time-out
+TYPE <- type
+Time <- time
+True <- true
+UATAUAVH <- @UATAUAVH
+UATAUH <- @UATAUH
+UNKNOWN_EXCEPTION <- Unknown exception
+USVWATAUAWH <- @USVWATAUAWH
+USVWAUAWH <- @USVWAUAWH
+UTF8 <- utf8
+UUUU <- %u.%u.%u.%u
+UVATAVAWH <- @UVATAVAWH
+UWAWH <- @UWAWH
+UWE3 <- uwE3
+UserId <- User Id
+VAUAVAWH <- @VAUAVAWH
+VAUAWH <- @VAUAWH
+VWATH <- \$ VWATH
+VWAVAWH <- @VWAVAWH
+WATAWH <- \$ WATAWH
+WAVH <- @WAVH
+WRITE <- write
+Warning <- warning
+_fff <- }<fff
+_tnH <- tNH;
+access <- _access
+addCoreScriptLocal <- AddCoreScriptLocal
+append_file <- appendfile
+append_file_async <- appendfileasync
+archivable <- Archivable
+body <- Body
+broadcastNotification <- BroadcastNotification
+bytes <- "bytes": [
+callback <-         callback(...)
+can_signal_replicate <- cansignalreplicate
+captureScreenshot <- CaptureScreenshot
+channel <- Channel
+check_caller <- checkcaller
+check_closure <- checkclosure
+check_parallel <- checkparallel
+className <- ClassName
+clipboard <- Clipboard
+clone_ref <- cloneref
+clone_reference <- clonereference
+color <- COLOR
+compare_function <- comparefunction
+compare_functions <- comparefunctions
+compare_instances <- compareinstances
+connection <- Connection
+console_clear <- consoleclear
+console_create <- consolecreate
+console_destroy <- consoledestroy
+console_input <- consoleinput
+console_print <- consoleprint
+createPostAsync <- CreatePostAsync
+data <- .data
+del_file <- delfile
+del_folder <- delfolder
+deleteCapture <- DeleteCapture
+deleteCapturesAsync <- DeleteCapturesAsync
+describe <- DESCRIBE
+detectUrl <- DetectUrl
+do_file <- dofile
+dumpToFileAsync <- DumpToFileAsync
+emitHybridEvent <- EmitHybridEvent
+executeJavaScript <- ExecuteJavaScript
+f9_pt <- ;f9|$Pt
+fD9u <- fD9*u
+fetchAssetWithFormat <- FetchAssetWithFormat
+filter_gc <- filtergc
+fire_click_detector <- fireclickdetector
+fire_proximity_prompt <- fireproximityprompt
+fire_signal <- firesignal
+fire_touch_interest <- firetouchinterest
+found <- Found
+getAndClearLastPendingUrl <- GetAndClearLastPendingUrl
+getAsync <- GetAsync
+getAsyncFullUrl <- GetAsyncFullUrl
+getAsyncH <- GetAsyncH
+getCaptureFilePathAsync <- GetCaptureFilePathAsync
+getCaptureSizeAsync <- GetCaptureSizeAsync
+getCaptureStorageSizeAsync <- GetCaptureStorageSizeAsync
+getCaptureUploadDataAsync <- GetCaptureUploadDataAsync
+getCredentialsHeaders <- GetCredentialsHeaders
+getDeviceAccessToken <- GetDeviceAccessToken
+getDeviceIntegrityToken <- GetDeviceIntegrityToken
+getDeviceIntegrityTokenYield <- GetDeviceIntegrityTokenYield
+getLast <- GetLast
+getLastLuaUrl <- GetLastLuaUrl
+getLocalFileContents <- GetLocalFileContents
+getMessageId <- GetMessageId
+getProtocolMethodRequestMessageId <- GetProtocolMethodRequestMessageId
+getProtocolMethodResponseMessageId <- GetProtocolMethodResponseMessageId
+getRobuxBalance <- GetRobuxBalance
+getUserSubscriptionDetailsInternalAsync <- GetUserSubscriptionDetailsInternalAsync
+getUserSubscriptionPaymentHistoryAsync <- GetUserSubscriptionPaymentHistoryAsync
+getUserSubscriptionStatusAsync <- GetUserSubscriptionStatusAsync
+get_actor_states <- getactorstates
+get_actors <- GetActors
+get_all_threads <- getallthreads
+get_calling_script <- getcallingscript
+get_connections <- getconnections
+get_custom_asset <- getcustomasset
+get_executor_name <- getexecutorname
+get_executor_version <- getexecutorversion
+get_fps_cap <- getfpscap
+get_function_hash <- getfunctionhash
+get_gc <- getgc
+get_hui <- gethui
+get_hwid <- gethwid
+get_instances <- getinstances
+get_loaded_modules <- getloadedmodules
+get_menv <- getmenv
+get_metafield <- getmetafield
+get_namecall_method <- getnamecallmethod
+get_nil_instances <- getnilinstances
+get_raw_metatable <- getrawmetatable
+get_reg <- getreg
+get_render_stepped_list <- getrendersteppedlist
+get_running_scripts <- getrunningscripts
+get_script_bytecode <- getscriptbytecode
+get_script_closure <- getscriptclosure
+get_script_from_thread <- getscriptfromthread
+get_script_function <- getscriptfunction
+get_script_globals <- getscriptglobals
+get_script_hash <- getscripthash
+get_script_thread <- getscriptthread
+get_scripts <- getscripts
+get_senv <- getsenv
+get_signal_arguments <- getsignalarguments
+get_signal_arguments_info <- getsignalargumentsinfo
+get_signal_whitelist <- getsignalwhitelist
+get_simulation_radius <- getsimulationradius
+get_tenv <- gettenv
+get_thread_context <- getthreadcontext
+gethiddengui <- get_hidden_gui
+gethiddenui <- get_hidden_ui
+getprocessidentifier <- get_process_identifier
+has_metafield <- hasmetafield
+has_metatable <- hasmetatable
+hook_func <- hookfunc
+hook_function <- =hookfunction
+hook_meta_method <- hookmetamethod
+hook_metamethod <- hookmetamethod
+hook_signal <- hooksignal
+httpRequestAsync <- HttpRequestAsync
+https_proxy <- HTTPS-proxy
+identify_executor <- identifyexecutor
+invalid <- Invalid
+invokeAsync <- InvokeAsync
+isUrlRegistered <- IsUrlRegistered
+is_c_closure <- iscclosure
+is_cclosure <- iscclosure
+is_executor_closure <- isexecutorclosure
+is_executor_function <- isexecutorfunction
+is_file <- isfile
+is_folder <- isfolder
+is_function_hooked <- isfunctionhooked
+is_game_active <- isgameactive
+is_hidden_stack <- ishiddenstack
+is_l_closure <- islclosure
+is_lclosure <- islclosure
+is_network_owner <- isnetworkowner
+is_new_c_closure <- isnewcclosure
+is_newc_closure <- isnewcclosure
+is_newcclosure <- isnewcclosure
+is_our_closure <- isourclosure
+is_parallel <- isparallel
+is_rbx_active <- isrbxactive
+is_readonly <- isreadonly
+is_untouched <- isuntouched
+is_valid_level <- isvalidlevel
+isvararg <- is_vararg
+key_click <- keyclick
+key_press <- keypress
+key_release <- keyrelease
+list_files <- listfiles
+load_file <- loadfile
+load_file_async <- loadfileasync
+lz4_compress <- lz4compress
+lz4_decompress <- lz4decompress
+makeRequest <- MakeRequest
+make_folder <- makefolder
+make_readonly <- makereadonly
+make_writeable <- makewriteable
+message_box <- messagebox
+mouse1_click <- mouse1click
+mouse1_press <- mouse1press
+mouse1_release <- mouse1release
+mouse2_click <- mouse2click
+mouse2_press <- mouse2press
+mouse2_release <- mouse2release
+mouse_move_abs <- mousemoveabs
+mouse_move_rel <- mousemoverel
+mouse_scroll <- mousescroll
+mouseclick <- MouseClick
+mousehoverenter <- MouseHoverEnter
+mousehoverleave <- MouseHoverLeave
+new_c_closure <- newcclosure
+new_cclosure <- newcclosure
+new_l_closure <- =newlclosure
+new_lclosure <- =newlclosure
+noPromptCreateOutfit <- NoPromptCreateOutfit
+noPromptDeleteOutfit <- NoPromptDeleteOutfit
+noPromptRenameOutfit <- NoPromptRenameOutfit
+noPromptSaveAvatar <- NoPromptSaveAvatar
+noPromptSaveAvatarThumbnailCustomization <- NoPromptSaveAvatarThumbnailCustomization
+noPromptSetFavorite <- NoPromptSetFavorite
+noPromptUpdateOutfit <- NoPromptUpdateOutfit
+openBrowserWindow <- OpenBrowserWindow
+openNativeOverlay <- OpenNativeOverlay
+openScreenshotsFolder <- OpenScreenshotsFolder
+openUrl <- OpenUrl
+openVideosFolder <- OpenVideosFolder
+openWeChatAuthWindow <- OpenWeChatAuthWindow
+performBulkPurchase <- PerformBulkPurchase
+performCancelSubscription <- PerformCancelSubscription
+performCreateOutfitWithDescription <- PerformCreateOutfitWithDescription
+performDeleteOutfit <- PerformDeleteOutfit
+performManagedUpdate <- PerformManagedUpdate
+performPurchase <- PerformPurchase
+performPurchaseV2 <- PerformPurchaseV2
+performRenameOutfit <- PerformRenameOutfit
+performSaveAvatarWithDescription <- PerformSaveAvatarWithDescription
+performSetFavorite <- PerformSetFavorite
+performSubscriptionPurchase <- PerformSubscriptionPurchase
+performSubscriptionPurchaseV2 <- PerformSubscriptionPurchaseV2
+performUpdateOutfit <- PerformUpdateOutfit
+postAsync <- PostAsync
+postAsyncFullUrl <- PostAsyncFullUrl
+prepareCollectiblesPurchase <- PrepareCollectiblesPurchase
+preview <- ##preview
+promptAllowInventoryReadAccess <- PromptAllowInventoryReadAccess
+promptBulkPurchase <- PromptBulkPurchase
+promptBundlePurchase <- PromptBundlePurchase
+promptCancelSubscription <- PromptCancelSubscription
+promptCollectiblesPurchase <- PromptCollectiblesPurchase
+promptCreateOutfit <- PromptCreateOutfit
+promptDeleteOutfit <- PromptDeleteOutfit
+promptGamePassPurchase <- PromptGamePassPurchase
+promptNativePurchase <- PromptNativePurchase
+promptNativePurchaseWithLocalPlayer <- PromptNativePurchaseWithLocalPlayer
+promptPremiumPurchase <- PromptPremiumPurchase
+promptProductPurchase <- PromptProductPurchase
+promptPurchase <- PromptPurchase
+promptRenameOutfit <- PromptRenameOutfit
+promptRobloxPurchase <- PromptRobloxPurchase
+promptSaveAvatar <- PromptSaveAvatar
+promptSaveCapturesToGallery <- PromptSaveCapturesToGallery
+promptSetFavorite <- PromptSetFavorite
+promptShareCapture <- PromptShareCapture
+promptSubscriptionPurchase <- PromptSubscriptionPurchase
+promptThirdPartyPurchase <- PromptThirdPartyPurchase
+promptUpdateOutfit <- PromptUpdateOutfit
+ps_4_0 <- @ps_4_0
+publish <- Publish
+publishProtocolMethodRequest <- PublishProtocolMethodRequest
+publishProtocolMethodResponse <- PublishProtocolMethodResponse
+rakNet <- raknet
+read_file <- readfile
+read_file_async <- readfileasync
+registerLuaUrl <- RegisterLuaUrl
+registerOpenCloud <- RegisterOpenCloud
+registerUGCValidationFunction <- RegisterUGCValidationFunction
+replace_closure <- replaceclosure
+replicate_signal <- replicatesignal
+reportAbuse <- ReportAbuse
+reportAbuseV3 <- ReportAbuseV3
+requestAsync <- RequestAsync
+requestLimitedAsync <- RequestLimitedAsync
+restore_func <- restorefunc
+restore_function <- restorefunction
+retrieveCaptures <- RetrieveCaptures
+returnToJavaScript <- ReturnToJavaScript
+rightmouseclick <- RightMouseClick
+saveCaptureToExternalStorage <- SaveCaptureToExternalStorage
+saveCapturesToExternalStorageAsync <- SaveCapturesToExternalStorageAsync
+saveScreenshotCapture <- SaveScreenshotCapture
+saveScriptProfilingData <- SaveScriptProfilingData
+save_instance <- saveinstance
+sendCommand <- SendCommand
+setAllowInventoryReadAccess <- SetAllowInventoryReadAccess
+setBaseUrl <- SetBaseUrl
+setPurchasePromptIsShown <- SetPurchasePromptIsShown
+set_clipboard <- setclipboard
+set_fps_cap <- setfpscap
+set_hidden_stack <- sethiddenstack
+set_namecall_method <- setnamecallmethod
+set_raw_metatable <- setrawmetatable
+set_rbx_clipboard <- setrbxclipboard
+set_readonly <- setreadonly
+set_simulation_radius <- setsimulationradius
+set_thread_context <- setthreadcontext
+set_untouched <- setuntouched
+signalCreateOutfitFailed <- SignalCreateOutfitFailed
+signalCreateOutfitPermissionDenied <- SignalCreateOutfitPermissionDenied
+signalDeleteOutfitFailed <- SignalDeleteOutfitFailed
+signalDeleteOutfitPermissionDenied <- SignalDeleteOutfitPermissionDenied
+signalRenameOutfitFailed <- SignalRenameOutfitFailed
+signalRenameOutfitPermissionDenied <- SignalRenameOutfitPermissionDenied
+signalSaveAvatarPermissionDenied <- SignalSaveAvatarPermissionDenied
+signalSetFavoriteFailed <- SignalSetFavoriteFailed
+signalSetFavoritePermissionDenied <- SignalSetFavoritePermissionDenied
+signalUpdateOutfitFailed <- SignalUpdateOutfitFailed
+signalUpdateOutfitPermissionDenied <- SignalUpdateOutfitPermissionDenied
+startLuaUrlDelivery <- StartLuaUrlDelivery
+stopLuaUrlDelivery <- StopLuaUrlDelivery
+subject <- Subject
+subscribe <- Subscribe
+subscribeToProtocolMethodRequest <- SubscribeToProtocolMethodRequest
+subscribeToProtocolMethodResponse <- SubscribeToProtocolMethodResponse
+success <- Success
+supportsSwitchToSettingsApp <- SupportsSwitchToSettingsApp
+switchToSettingsApp <- SwitchToSettingsApp
+t9E3 <- >t9E3
+tDE3 <- +T$DE3
+tGH9 <- tgH9
+tGfff <- tgfff
+tHSH <- thSH
+tIE3 <- tiE3
+tLE3 <- T$LE3
+tXH9 <- t$XH9
+tXIc <- t$XIc
+t_E3 <- t$@E3
+taE3 <- tAE3
+takeScreenshot <- TakeScreenshot
+tcE3 <- tCE3
+text <- ##Text
+tfSH <- tFSH
+thff <- tHff
+tjE3 <- tJE3
+tkSH <- tKSH
+tnD9 <- tND9
+toggleRecording <- ToggleRecording
+txE3 <- tXE3
+uQE3 <- uqE3
+u_E3 <- u|E3
+u_Hc <- u!Hc]
+unE3 <- uNE3
+uxE3 <- uXE3
+value <- Value
+w0E3 <- W0E3
+write_file <- writefile
+write_file_async <- writefileasync
+z0E3 <- Z0E3
+zWuU <- zwuu
+zgue <- zGuE
+zkui <- zKuI
+
+## B. only in Volt (163)
+ClearAllChildren
+GetACP
+GetActiveWindow
+GetAncestor
+GetAsyncKeyState
+GetBoundingBox
+GetCPInfo
+GetClassNameA
+GetCommandLineA
+GetCommandLineW
+GetComponents
+GetConsoleOutputCP
+GetCurrentDirectoryW
+GetCurrentHwProfileA
+GetDateFormatEx
+GetDateFormatW
+GetDriveTypeW
+GetEnumItems
+GetEnvironmentStringsW
+GetExitCodeThread
+GetFinalPathNameByHandleW
+GetKeyNameTextA
+GetKeyboardLayout
+GetLocaleInfoA
+GetLocaleInfoW
+GetMessageExtraInfo
+GetMonitorInfoA
+GetName
+GetNativeSystemInfo
+GetOEMCP
+GetPivot
+GetPlayers
+GetPropA
+GetPropertiesOfClass
+GetStartupInfoW
+GetStringTypeW
+GetSystemInfo
+GetSystemTime
+GetSystemTimePreciseAsFileTime
+GetTempPath2W
+GetThreadDpiAwarenessContext
+GetTimeFormatEx
+GetTimeFormatW
+GetTimeZoneInformation
+GetUserDefaultLCID
+GetUserDefaultLocaleName
+GetWindowLongPtrW
+GetWindowTextW
+HasColorOverride
+IsConnected
+IsDBCSLeadByte
+IsDebuggerPresent
+IsDescendantOf
+IsEnabled
+IsModel
+IsValidCodePage
+IsValidLocale
+IsValidLocaleName
+IsWaitConnection
+IsWindowUnicode
+IssuerBlob
+LIST_PREQUOTE
+LIST_TYPE
+ListFilesInFolderAsync
+LoadCursorA
+LoadError
+LoadLibraryExW
+OpenFileInWebBrowser
+OpenFolder
+OpenLogsFolder
+OpenWindow
+OpenWindowV2
+PRINTSCREEN
+PrintScreen
+ProtectedString
+ReadConsoleW
+ReadProcessMemory
+SaveBytecode
+SaveInstanceOptions
+SaveNilInstances
+SaveNonCreatable
+SavePlayerCharacters
+SavePlayers
+SetData
+SetEndOfFile
+SetEnvironmentVariableW
+SetFileInformationByHandle
+SetFilePointerEx
+SetPropA
+SetStdHandle
+SetThreadDpiAwarenessContext
+SetWaitableTimer
+SetWindowDisplayAffinity
+SetWindowLongA
+SetWindowLongPtrA
+SetWindowRgn
+SetWindowsHookExW
+UnhookWindowsHookEx
+WriteConsoleW
+clear_tp_queue
+cleared
+cleartpqueue
+clonefunc
+firetouchtransmitter
+get_actor_from_state
+get_actor_from_thread
+get_actor_threads
+get_all_receive_hooks
+get_all_send_hooks
+get_current_actor
+get_deleted_actors
+get_gc_objects
+get_pid
+get_state_env
+get_syn_asset
+getactorfromstate
+getactorfromthread
+getactorthreads
+getallreceivehooks
+getallsendhooks
+getcurrentactor
+getdeletedactors
+gethiddenprops
+getpid
+getstateenv
+getsynasset
+getthreadcaps
+iS3P
+is_enabled
+is_exploit_function
+is_func_hooked
+is_luau
+isexploitfunction
+isfunchooked
+isluaclosure
+isluau
+listFilesInFolderAsync
+openFileInWebBrowser
+openFolder
+openLogsFolder
+openWindow
+openWindowV2
+printidentity
+queue_on_tp
+queueontp
+removeContinues
+remove_all_receive_hooks
+remove_all_send_hooks
+removeallreceivehooks
+removeallsendhooks
+restore_closure
+restoreclosure
+run_on_thread
+runonthread
+save
+save_place
+saveplace
+setthreadcaps
+setybdetL
+write_custom_asset
+write_syn_asset
+writecustomasset
+writesynasset

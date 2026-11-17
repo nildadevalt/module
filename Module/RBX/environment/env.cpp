@@ -175,6 +175,153 @@ static void ClearInstanceFastPaths(lua_State* L)
 }
 
 
+// ── Volt-compatible snake_case aliases ───────────────────────────
+// Other executors expose every API twice (writefile and write_file, mouse1click
+// and mouse1_click). Scripts written against those names simply fail here, so
+// each existing global is mirrored under its snake_case spelling.
+static void RegisterSnakeCaseAliases(lua_State* L)
+{
+    static const char* kAliases[][2] = {
+        { "append_file", "appendfile" },
+        { "append_file_async", "appendfileasync" },
+        { "can_signal_replicate", "cansignalreplicate" },
+        { "check_caller", "checkcaller" },
+        { "check_closure", "checkclosure" },
+        { "check_parallel", "checkparallel" },
+        { "clone_ref", "cloneref" },
+        { "clone_reference", "clonereference" },
+        { "compare_function", "comparefunction" },
+        { "compare_functions", "comparefunctions" },
+        { "compare_instances", "compareinstances" },
+        { "del_file", "delfile" },
+        { "del_folder", "delfolder" },
+        { "do_file", "dofile" },
+        { "filter_gc", "filtergc" },
+        { "fire_click_detector", "fireclickdetector" },
+        { "fire_proximity_prompt", "fireproximityprompt" },
+        { "fire_signal", "firesignal" },
+        { "fire_touch_interest", "firetouchinterest" },
+        { "get_actor_states", "getactorstates" },
+        { "get_all_threads", "getallthreads" },
+        { "get_calling_script", "getcallingscript" },
+        { "get_connections", "getconnections" },
+        { "get_custom_asset", "getcustomasset" },
+        { "get_executor_name", "getexecutorname" },
+        { "get_executor_version", "getexecutorversion" },
+        { "get_fps_cap", "getfpscap" },
+        { "get_function_hash", "getfunctionhash" },
+        { "get_gc", "getgc" },
+        { "get_hui", "gethui" },
+        { "get_hwid", "gethwid" },
+        { "get_instances", "getinstances" },
+        { "get_loaded_modules", "getloadedmodules" },
+        { "get_menv", "getmenv" },
+        { "get_metafield", "getmetafield" },
+        { "get_namecall_method", "getnamecallmethod" },
+        { "get_nil_instances", "getnilinstances" },
+        { "get_raw_metatable", "getrawmetatable" },
+        { "get_reg", "getreg" },
+        { "get_render_stepped_list", "getrendersteppedlist" },
+        { "get_running_scripts", "getrunningscripts" },
+        { "get_script_bytecode", "getscriptbytecode" },
+        { "get_script_closure", "getscriptclosure" },
+        { "get_script_from_thread", "getscriptfromthread" },
+        { "get_script_function", "getscriptfunction" },
+        { "get_script_globals", "getscriptglobals" },
+        { "get_script_hash", "getscripthash" },
+        { "get_script_thread", "getscriptthread" },
+        { "get_scripts", "getscripts" },
+        { "get_senv", "getsenv" },
+        { "get_signal_arguments", "getsignalarguments" },
+        { "get_signal_arguments_info", "getsignalargumentsinfo" },
+        { "get_signal_whitelist", "getsignalwhitelist" },
+        { "get_simulation_radius", "getsimulationradius" },
+        { "get_tenv", "gettenv" },
+        { "get_thread_context", "getthreadcontext" },
+        { "has_metafield", "hasmetafield" },
+        { "has_metatable", "hasmetatable" },
+        { "hook_func", "hookfunc" },
+        { "hook_meta_method", "hookmetamethod" },
+        { "hook_metamethod", "hookmetamethod" },
+        { "hook_signal", "hooksignal" },
+        { "identify_executor", "identifyexecutor" },
+        { "is_c_closure", "iscclosure" },
+        { "is_cclosure", "iscclosure" },
+        { "is_executor_closure", "isexecutorclosure" },
+        { "is_executor_function", "isexecutorfunction" },
+        { "is_file", "isfile" },
+        { "is_folder", "isfolder" },
+        { "is_function_hooked", "isfunctionhooked" },
+        { "is_game_active", "isgameactive" },
+        { "is_hidden_stack", "ishiddenstack" },
+        { "is_l_closure", "islclosure" },
+        { "is_lclosure", "islclosure" },
+        { "is_network_owner", "isnetworkowner" },
+        { "is_new_c_closure", "isnewcclosure" },
+        { "is_newc_closure", "isnewcclosure" },
+        { "is_newcclosure", "isnewcclosure" },
+        { "is_our_closure", "isourclosure" },
+        { "is_parallel", "isparallel" },
+        { "is_rbx_active", "isrbxactive" },
+        { "is_readonly", "isreadonly" },
+        { "is_untouched", "isuntouched" },
+        { "is_valid_level", "isvalidlevel" },
+        { "key_click", "keyclick" },
+        { "key_press", "keypress" },
+        { "key_release", "keyrelease" },
+        { "list_files", "listfiles" },
+        { "load_file", "loadfile" },
+        { "load_file_async", "loadfileasync" },
+        { "lz4_compress", "lz4compress" },
+        { "lz4_decompress", "lz4decompress" },
+        { "make_folder", "makefolder" },
+        { "make_readonly", "makereadonly" },
+        { "make_writeable", "makewriteable" },
+        { "message_box", "messagebox" },
+        { "mouse1_click", "mouse1click" },
+        { "mouse1_press", "mouse1press" },
+        { "mouse1_release", "mouse1release" },
+        { "mouse2_click", "mouse2click" },
+        { "mouse2_press", "mouse2press" },
+        { "mouse2_release", "mouse2release" },
+        { "mouse_move_abs", "mousemoveabs" },
+        { "mouse_move_rel", "mousemoverel" },
+        { "mouse_scroll", "mousescroll" },
+        { "new_c_closure", "newcclosure" },
+        { "new_cclosure", "newcclosure" },
+        { "read_file", "readfile" },
+        { "read_file_async", "readfileasync" },
+        { "replace_closure", "replaceclosure" },
+        { "replicate_signal", "replicatesignal" },
+        { "restore_func", "restorefunc" },
+        { "restore_function", "restorefunction" },
+        { "save_instance", "saveinstance" },
+        { "set_clipboard", "setclipboard" },
+        { "set_fps_cap", "setfpscap" },
+        { "set_hidden_stack", "sethiddenstack" },
+        { "set_namecall_method", "setnamecallmethod" },
+        { "set_raw_metatable", "setrawmetatable" },
+        { "set_rbx_clipboard", "setrbxclipboard" },
+        { "set_readonly", "setreadonly" },
+        { "set_simulation_radius", "setsimulationradius" },
+        { "set_thread_context", "setthreadcontext" },
+        { "set_untouched", "setuntouched" },
+        { "write_file", "writefile" },
+        { "write_file_async", "writefileasync" },
+    };
+
+    for (const auto& alias : kAliases)
+    {
+        lua_getglobal(L, alias[1]);
+        if (lua_isnil(L, -1))
+        {
+            lua_pop(L, 1);
+            continue;
+        }
+        lua_setglobal(L, alias[0]);
+    }
+}
+
 void EnvironmentAPI::initalizeEnvironment(lua_State* L)
 {
     ClearInstanceFastPaths(L);
@@ -488,6 +635,7 @@ pcall(function()
 end)
 )LUA";
 
+    RegisterSnakeCaseAliases(L);
     task_scheduler::RequestExecution(signal);
     task_scheduler::RequestExecution(websocketScript);
     task_scheduler::RequestExecution(bannerScript);
