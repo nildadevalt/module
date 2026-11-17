@@ -63,7 +63,10 @@ namespace
     // key through the real input queue (SendInput) after making the client
     // foreground, and keep the window's previous state so the caller's focus
     // is not stolen permanently.
-    void BringClientForeground(HWND hwnd)
+    // Generic "become the foreground window" helper: attaching our input queue
+    // to the thread that currently owns the foreground window is what makes
+    // SetForegroundWindow legal for a background process.
+    void ForceForeground(HWND hwnd)
     {
         if (!hwnd || GetForegroundWindow() == hwnd)
             return;
@@ -92,6 +95,13 @@ namespace
             AttachThreadInput(thisThread, targetThread, FALSE);
         if (attachFg)
             AttachThreadInput(thisThread, fgThread, FALSE);
+    }
+
+    void BringClientForeground(HWND hwnd)
+    {
+        if (!hwnd || GetForegroundWindow() == hwnd)
+            return;
+        ForceForeground(hwnd);
     }
 
     // Diagnostics / shim helper: try to make the client the foreground window
@@ -513,6 +523,53 @@ void Input::register_lib(lua_State* L)
     Environment->make_global(L, ("mousemoveabs"), Input::mousemoveabs, Input::funcnameinc++);
     Environment->make_global(L, ("__inputdiag"), Input::inputdiag, Input::funcnameinc++);
     Environment->make_global(L, ("__inputsinject"), Input::inputsinject, Input::funcnameinc++);
+    Environment->make_global(L, ("__client_focused"), +[](lua_State* L) -> int
+    {
+        // Read-only check: never steal focus. Grabbing focus makes the camera
+        // lock the mouse, which then breaks every following input test.
+        HWND hwnd = RobloxWindow();
+        lua_pushboolean(L, hwnd && GetForegroundWindow() == hwnd);
+        return 1;
+    }, Input::funcnameinc++);
+
+    Environment->make_global(L, ("__wheel_os"), +[](lua_State* L) -> int
+    {
+        // VirtualInputManager collapses every wheel notch to +1, so scrolling
+        // down zoomed in exactly like scrolling up. A real Win32 wheel keeps
+        // both sign and magnitude but is only delivered to the foreground
+        // window, so borrow the foreground for the injection and hand it
+        // straight back - leaving the game focused makes the camera lock the
+        // mouse and breaks the input tests that follow.
+        const int delta = static_cast<int>(luaL_checkinteger(L, 1));
+        HWND hwnd = RobloxWindow();
+        if (!hwnd)
+        {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+
+        EnsureCursorInClient(hwnd);
+        HWND previous = GetForegroundWindow();
+        if (previous != hwnd)
+            ForceForeground(hwnd);
+
+        const bool injected = GetForegroundWindow() == hwnd;
+        if (injected)
+        {
+            INPUT in{};
+            in.type = INPUT_MOUSE;
+            in.mi.mouseData = static_cast<DWORD>(delta * WHEEL_DELTA);
+            in.mi.dwFlags = MOUSEEVENTF_WHEEL;
+            SendInput(1, &in, sizeof(INPUT));
+        }
+
+        if (injected && previous && previous != hwnd)
+            ForceForeground(previous);
+
+        lua_pushboolean(L, injected);
+        return 1;
+    }, Input::funcnameinc++);
+
     Environment->make_global(L, ("__focus_client"), +[](lua_State* L) -> int
     {
         // Try to pull the client window to the front. Only when this succeeds is

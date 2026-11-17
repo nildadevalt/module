@@ -613,20 +613,11 @@ pcall(function()
         return ok and v == true
     end
 
-    local function info(level, opts)
-        if typeof(level) ~= "number" or level < 0 then return raw_info(level, opts) end
-        if level == 0 then return raw_info(0, opts) end
-        local seen = 0
-        for a = 1, 250 do
-            local fn = raw_info(a, "f")
-            if fn == nil then return nil end
-            if not hid(fn) then
-                seen = seen + 1
-                if seen == level then return raw_info(a, opts) end
-            end
-        end
-        return nil
-    end
+    -- debug.info stays untouched on purpose: the executor itself (and several
+    -- detection tests) resolves a function by calling debug.info(1, "f") from a
+    -- compiled chunk, and a wrapper answers with the wrapper instead, which
+    -- broke hookfunction and getrawmetatable. Only the traceback is rewritten.
+    local info = raw_info
 
     local function traceback(msg, level)
         local any = false
@@ -815,7 +806,10 @@ pcall(task.defer, function()
         -- VirtualInputManager drops the wheel sign: every notch arrives as +1,
         -- so a scroll down zoomed in exactly like a scroll up. The real Win32
         -- wheel keeps the sign, but only when the game owns the foreground.
-        if __focus_client and __focus_client() then
+        -- Only the already-focused client can take a real Win32 wheel; when we
+        -- have to fight for the foreground the game may drop the message, so
+        -- fall back to VirtualInputManager (single event, sign collapsed).
+        if __client_focused and __client_focused() then
             return orig.mousescroll(delta)
         end
         local x, y = cursor()

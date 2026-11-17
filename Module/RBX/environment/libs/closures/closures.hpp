@@ -49,6 +49,10 @@ namespace Closures
     // shared across every translation unit that includes this header so that
     // hookmetamethod / debug / invoke interception all see the same records
     inline std::unordered_map<Closure*, HookRecord> HookRecords;
+    // One dispatcher Proto per hooked Lua target, so the Proto itself is a
+    // stable key: any closure running that Proto (including clones) resolves
+    // to the same hook record without asking debug.info for the function.
+    inline std::unordered_map<Proto*, int> HookProtoRecords;
     inline std::unordered_map<Closure*, NewCClosureRecord> NewCClosureRefs;
     inline std::unordered_set<Closure*> WrappedClosures;
     inline int LuaHookDispatcherRef = LUA_NOREF;
@@ -513,6 +517,34 @@ namespace Closures
 
     inline int HookLuaDispatcher(lua_State* L)
     {
+        // The dispatcher chunk resolves its target with debug.info(1, "f"),
+        // which is only an approximation: debug.info can be wrapped by the
+        // script environment or by our own frame-hiding layer, and then it
+        // reports the wrapper instead of the hooked closure. The closure
+        // running right now is the hooked target itself (its Proto was
+        // replaced by a per-target dispatcher), so key off that first and
+        // only fall back to the argument the chunk passed.
+        // The caller is the dispatcher chunk itself; because that chunk owns a
+        // per-target Proto, the Proto identifies the hook regardless of which
+        // closure instance is running it.
+        if (L->ci > L->base_ci)
+        {
+            TValue* callerValue = (L->ci - 1)->func;
+            if (callerValue && ttisfunction(callerValue))
+            {
+                Closure* caller = clvalue(callerValue);
+                if (caller && !caller->isC)
+                {
+                    auto byProto = HookProtoRecords.find(caller->l.p);
+                    if (byProto != HookProtoRecords.end() && byProto->second != LUA_NOREF)
+                    {
+                        lua_remove(L, 1); // drop the target the chunk passed
+                        return call_referenced_function(L, byProto->second);
+                    }
+                }
+            }
+        }
+
         Closure* target = to_closure(L, 1);
         lua_remove(L, 1);
 
@@ -872,6 +904,7 @@ namespace Closures
             lua_pop(L, 1);
 
             Proto* dispatcher = make_hook_dispatcher_proto(L, nameSource);
+            HookProtoRecords[dispatcher] = record.HookRef;
 
             target->stacksize = dispatcher->maxstacksize;
             target->preload = 0;
