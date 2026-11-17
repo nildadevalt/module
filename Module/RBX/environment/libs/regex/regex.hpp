@@ -9,6 +9,9 @@ struct RegexObject {
     uint32_t magic;
     std::regex pattern;
     std::string patternStr;
+    // C++ ECMAScript has no non-capturing groups, so "(?:...)" is compiled as a
+    // normal group and these group numbers are dropped from the captures again.
+    std::vector<int> nonCapturing;
 };
 
 constexpr uint32_t REGEX_MAGIC = 0x52454758; // "REGX"

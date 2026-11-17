@@ -2,6 +2,8 @@
 
 #include <regex>
 #include <cstring>
+#include <algorithm>
+#include <vector>
 
 #include <Utilitys/Utils.hpp>
 #include <Utilitys/Globals.hpp>
@@ -19,9 +21,24 @@ namespace Regex {
         std::string str(contents);
         std::smatch match;
         if (std::regex_search(str, match, obj->pattern))
-            lua_pushstring(L, match[0].str().c_str());
-        else
-            lua_pushnil(L);
+        {
+            // Match returns { Captures = { whole, group1, ... } }, the shape debUNC
+            // and other executors use, instead of the plain match string.
+            lua_newtable(L);
+            lua_newtable(L);
+            int outIndex = 1;
+            for (size_t i = 0; i < match.size(); ++i)
+            {
+                if (i > 0 && std::find(obj->nonCapturing.begin(), obj->nonCapturing.end(), (int)i) != obj->nonCapturing.end())
+                    continue;
+
+                lua_pushstring(L, match[i].str().c_str());
+                lua_rawseti(L, -2, outIndex++);
+            }
+            lua_setfield(L, -2, "Captures");
+            return 1;
+        }
+        lua_pushnil(L);
         return 1;
     }
 
@@ -50,9 +67,9 @@ namespace Regex {
         if (!obj || obj->magic != REGEX_MAGIC) luaL_error(L, ("invalid Regex object"));
         const char* contents = luaL_checkstring(L, 2);
         const char* replacement = luaL_checkstring(L, 3);
+        // Replace changes every match, not just the first one.
         std::string result = std::regex_replace(
-            std::string(contents), obj->pattern, std::string(replacement),
-            std::regex_constants::format_first_only
+            std::string(contents), obj->pattern, std::string(replacement)
         );
         lua_pushstring(L, result.c_str());
         return 1;
@@ -92,7 +109,50 @@ namespace Regex {
             new(obj) RegexObject();
             obj->magic = REGEX_MAGIC;
             obj->patternStr = pattern;
-            obj->pattern = std::regex(pattern, std::regex::ECMAScript);
+
+            std::string rewritten;
+            int groupIndex = 0;
+            bool inClass = false;
+            for (size_t i = 0; i < obj->patternStr.size(); ++i)
+            {
+                char c = obj->patternStr[i];
+
+                if (c == '\\' && i + 1 < obj->patternStr.size())
+                {
+                    rewritten += c;
+                    rewritten += obj->patternStr[++i];
+                    continue;
+                }
+                if (inClass)
+                {
+                    if (c == ']')
+                        inClass = false;
+                    rewritten += c;
+                    continue;
+                }
+                if (c == '[')
+                {
+                    inClass = true;
+                    rewritten += c;
+                    continue;
+                }
+                if (c == '(')
+                {
+                    if (i + 2 < obj->patternStr.size() && obj->patternStr[i + 1] == '?' && obj->patternStr[i + 2] == ':')
+                    {
+                        obj->nonCapturing.push_back(++groupIndex);
+                        rewritten += '(';
+                        i += 2;
+                        continue;
+                    }
+                    ++groupIndex;
+                    rewritten += c;
+                    continue;
+                }
+                rewritten += c;
+            }
+
+            obj->pattern = std::regex(rewritten, std::regex::ECMAScript);
         }
         catch (const std::regex_error& e) {
             obj->magic = 0;

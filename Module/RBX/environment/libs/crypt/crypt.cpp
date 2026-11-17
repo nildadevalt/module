@@ -136,6 +136,68 @@ namespace Crypt
         return ok;
     }
 
+    // AES-CTR is AES-ECB over an incrementing counter block, XORed with the data,
+    // so encrypt and decrypt are the same call. CryptoAPI only offers CBC/ECB, so
+    // the counter blocks are encrypted here by hand.
+    inline bool aes_ctr_crypt(std::string& data, const std::string& key, const std::string& iv)
+    {
+        if (key.size() != 32 || iv.size() < 16)
+            return false;
+
+        HCRYPTPROV provider = 0;
+        HCRYPTKEY cryptoKey = 0;
+        if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+            return false;
+
+        struct AesKeyBlob
+        {
+            BLOBHEADER header;
+            DWORD keySize;
+            BYTE key[32];
+        } blob{};
+        blob.header.bType = PLAINTEXTKEYBLOB;
+        blob.header.bVersion = CUR_BLOB_VERSION;
+        blob.header.aiKeyAlg = CALG_AES_256;
+        blob.keySize = 32;
+        memcpy(blob.key, key.data(), 32);
+
+        bool ok = CryptImportKey(provider, reinterpret_cast<BYTE*>(&blob), sizeof(blob),
+            0, 0, &cryptoKey) != FALSE;
+        DWORD mode = CRYPT_MODE_ECB;
+        ok = ok && CryptSetKeyParam(cryptoKey, KP_MODE, reinterpret_cast<BYTE*>(&mode), 0);
+
+        std::string counter(iv.data(), 16);
+        size_t offset = 0;
+
+        while (ok && offset < data.size())
+        {
+            std::string keystream = counter;
+            DWORD length = 16;
+            if (!CryptEncrypt(cryptoKey, 0, FALSE, 0,
+                    reinterpret_cast<BYTE*>(&keystream[0]), &length, 16) || length != 16)
+            {
+                ok = false;
+                break;
+            }
+
+            for (size_t i = 0; i < 16 && offset + i < data.size(); ++i)
+                data[offset + i] = (char)(data[offset + i] ^ keystream[i]);
+
+            offset += 16;
+
+            // 128-bit big-endian counter increment
+            for (int i = 15; i >= 0; --i)
+            {
+                if (++reinterpret_cast<unsigned char&>(counter[i]) != 0)
+                    break;
+            }
+        }
+
+        if (cryptoKey) CryptDestroyKey(cryptoKey);
+        CryptReleaseContext(provider, 0);
+        return ok;
+    }
+
     inline bool aes_cbc_crypt(std::string& data, const std::string& key,
         const std::string& iv, bool encrypting)
     {
@@ -498,8 +560,9 @@ namespace Crypt
         const char* rawData = luaL_checklstring(L, 1, &dataLength);
         const char* encodedKey = luaL_checklstring(L, 2, &keyLength);
         const char* mode = luaL_optstring(L, 4, ("CBC"));
-        if (_stricmp(mode, ("CBC")) != 0)
-            luaL_argerror(L, 4, ("only CBC mode is supported"));
+        const bool useCtr = _stricmp(mode, ("CTR")) == 0;
+        if (!useCtr && _stricmp(mode, ("CBC")) != 0)
+            luaL_argerror(L, 4, ("only CBC and CTR modes are supported"));
 
         std::string key;
         if (!base64_decode_string(std::string(encodedKey, keyLength), key) || key.size() != 32)
@@ -520,7 +583,12 @@ namespace Crypt
         }
 
         std::string encrypted(rawData, dataLength);
-        if (!aes_cbc_crypt(encrypted, key, iv, true))
+        if (useCtr)
+        {
+            if (!aes_ctr_crypt(encrypted, key, iv))
+                luaL_error(L, ("AES-CTR encryption failed"));
+        }
+        else if (!aes_cbc_crypt(encrypted, key, iv, true))
             luaL_error(L, ("AES-CBC encryption failed"));
         const std::string encoded = base64_encode_bytes(
             reinterpret_cast<const uint8_t*>(encrypted.data()), encrypted.size());
@@ -538,8 +606,9 @@ namespace Crypt
         const char* encodedKey = luaL_checklstring(L, 2, &keyLength);
         const char* encodedIv = luaL_checklstring(L, 3, &ivLength);
         const char* mode = luaL_optstring(L, 4, ("CBC"));
-        if (_stricmp(mode, ("CBC")) != 0)
-            luaL_argerror(L, 4, ("only CBC mode is supported"));
+        const bool useCtr = _stricmp(mode, ("CTR")) == 0;
+        if (!useCtr && _stricmp(mode, ("CBC")) != 0)
+            luaL_argerror(L, 4, ("only CBC and CTR modes are supported"));
 
         std::string encrypted, key, iv;
         if (!base64_decode_string(std::string(encodedData, encryptedLength), encrypted))
@@ -548,7 +617,12 @@ namespace Crypt
             luaL_argerror(L, 2, ("key must be a base64 encoded 256-bit key"));
         if (!base64_decode_string(std::string(encodedIv, ivLength), iv) || iv.size() < 16)
             luaL_argerror(L, 3, ("IV must contain at least 16 decoded bytes"));
-        if (!aes_cbc_crypt(encrypted, key, iv, false))
+        if (useCtr)
+        {
+            if (!aes_ctr_crypt(encrypted, key, iv))
+                luaL_error(L, ("AES-CTR decryption failed"));
+        }
+        else if (!aes_cbc_crypt(encrypted, key, iv, false))
             luaL_error(L, ("AES-CBC decryption failed"));
         lua_pushlstring(L, encrypted.data(), encrypted.size());
         return 1;

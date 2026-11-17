@@ -1,6 +1,9 @@
 #include "http.hpp"
 #include "gzip.hpp"
 
+#include <mutex>
+#include <unordered_map>
+
 // static data member declared in http.hpp has to live in exactly one TU,
 // otherwise every reference from register_lib dangles at link time
 int module::core::environment::c_http::funcnameinc = 0;
@@ -306,6 +309,31 @@ static void read_game_ids(lua_State* L, std::string& job_id, std::string& place_
     lua_pop(L, 1);
 }
 
+    // A repeated game:HttpGet on the same url returns the cached body, and the
+    // optional NoCache argument forces a fresh request (debUNC checks both sides).
+    static std::mutex httpCacheMutex;
+    static std::unordered_map<std::string, std::string> httpCache;
+
+    static bool http_cache_lookup(const std::string& url, std::string& out)
+    {
+        std::lock_guard<std::mutex> lock(httpCacheMutex);
+        auto it = httpCache.find(url);
+        if (it == httpCache.end())
+            return false;
+
+        out = it->second;
+        return true;
+    }
+
+    static void http_cache_store(const std::string& url, const std::string& body)
+    {
+        std::lock_guard<std::mutex> lock(httpCacheMutex);
+        if (httpCache.size() > 64)
+            httpCache.clear();
+
+        httpCache[url] = body;
+    }
+
 inline int module::core::environment::c_http::http_get(lua_State* L)
 {
     std::string url;
@@ -332,6 +360,19 @@ inline int module::core::environment::c_http::http_get(lua_State* L)
         return 0;
     }
 
+    const int urlIndex = lua_isstring(L, 1) ? 1 : 2;
+    const bool noCache = lua_toboolean(L, urlIndex + 1) != 0;
+
+    if (!noCache)
+    {
+        std::string cached;
+        if (http_cache_lookup(url, cached))
+        {
+            lua_pushlstring(L, cached.data(), cached.size());
+            return 1;
+        }
+    }
+
     std::string game_id;
     std::string place_id;
     read_game_ids(L, game_id, place_id);
@@ -356,13 +397,13 @@ inline int module::core::environment::c_http::http_get(lua_State* L)
     headers.insert({ ("Paradox-User-Identifier"), hwid });
     headers.insert({ ("Accept"), ("*/*") });
 
-    return Yielding::YieldExecution(L, [url, headers]() -> std::function<int(lua_State*)>
+    return Yielding::YieldExecution(L, [url, headers, noCache]() -> std::function<int(lua_State*)>
         {
             LOGF("HTTP", "GET started");
             http_result_t result = do_request(H_GET, url, headers, "");
             LOGF("HTTP", "GET finished: status=%d bytes=%zu error=%s", result.status_code, result.body.size(), result.error.c_str());
 
-            return [result](lua_State* L) -> int
+            return [result, url, noCache](lua_State* L) -> int
                 {
                     // A failed request must not look like a successful body. Raising
                     // from this resume callback surfaces as "resume callback raised a
@@ -380,6 +421,9 @@ inline int module::core::environment::c_http::http_get(lua_State* L)
                         lua_pushfstring(L, ("HTTP %d"), result.status_code);
                         return 2;
                     }
+
+                    if (!noCache)
+                        http_cache_store(url, result.body);
 
                     lua_pushlstring(L, result.body.data(), result.body.size());
                     return 1;
