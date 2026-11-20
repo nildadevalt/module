@@ -613,3 +613,27 @@ Client vẫn sống sau đó (process còn), script vẫn `pending` vì environm
 - debUNC on dinh 89% (186/9/6), vuot Real 75%.
 - Decrypted Real.dll da luu; buoc tiep theo (neu co thoi gian) la reverse bang
   debugger dynamic (Capstone + hook tai runtime) de lay handler cua tung API.
+
+
+## 2026-11-20 (final) — Emulator diagnosis + boot flaky
+
+### Emulator: source vs user-supplied
+- Emulator source cua minh (Emulator/build/RobloxPlayerBeta.dll, 28,871,168 B):
+  module KHONG load duoc (port 6969 khong len, WinError 10061).
+- Emulator nguoi khac (file user gui, hash 12545714..., 28,866,560 B):
+  module load on (da deploy lam mac dinh).
+- => Loi mat player / camera khong xoay khi doi sang emulator cua ta la do
+  emulator source khong inject module duoc. Day la phan cua user (split of labor).
+
+### Boot flaky
+- Cung 1 setup (emulator user + module minh), co lan module ready, co lan
+  WinError 10061 / CrashHandler ngay 5s dau (~1/3 theo changelog cu).
+- 3 loi script (RbxCharacterSounds GetService nil, PlayerScriptsLoader call nil,
+  Animate randomseed nil) xuat hien o mot so lan bootstrap — client LocalScript
+  chay voi env thieu global. Chua co bang chung thuyet phuc do module hay emulator;
+  bo qua vi boot flaky lam nhiem ket qua.
+
+### Quyet dinh
+- Giữ emulator user (hash 12545714) + module minh (89% debUNC) lam deploy mac dinh.
+- Khong sua emulator source nua (phan cua user).
+- Khong doi module vua push GitHub main sach.
