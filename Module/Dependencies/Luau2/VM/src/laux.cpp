@@ -11,8 +11,6 @@
 
 #include <string.h>
 
-LUAU_FASTFLAG(LuauManagedDebugNames)
-
 // convert a stack index to positive
 #define abs_index(L, i) ((i) > 0 || (i) <= LUA_REGISTRYINDEX ? (i) : lua_gettop(L) + (i) + 1)
 
@@ -74,16 +72,6 @@ static l_noret tag_error(lua_State* L, int narg, int tag)
 void luaL_where(lua_State* L, int level)
 {
     lua_Debug ar;
-
-    // a frame hidden by setstackhidden reports no source position, so
-    // error()/assert() raised from it produce the bare message.
-    if (level >= 0 && lua_frameishidden(L, level))
-    {
-        lua_rawcheckstack(L, 1);
-        lua_pushliteral(L, "");
-        return;
-    }
-
     if (lua_getinfo(L, level, "sl", &ar) && ar.currentline > 0)
     {
         lua_pushfstring(L, "%s:%d: ", ar.short_src, ar.currentline);
@@ -244,21 +232,9 @@ int luaL_checkinteger(lua_State* L, int narg)
     return d;
 }
 
-int64_t luaL_checkinteger64(lua_State* L, int narg)
-{
-    if (!lua_isinteger64(L, narg))
-        tag_error(L, narg, LUA_TINTEGER);
-    return lua_tointeger64(L, narg, nullptr);
-}
-
 int luaL_optinteger(lua_State* L, int narg, int def)
 {
     return luaL_opt(L, luaL_checkinteger, narg, def);
-}
-
-int64_t luaL_optinteger64(lua_State* L, int narg, int64_t def)
-{
-    return luaL_opt(L, luaL_checkinteger64, narg, def);
 }
 
 unsigned luaL_checkunsigned(lua_State* L, int narg)
@@ -403,9 +379,6 @@ void luaL_traceback(lua_State* L, lua_State* L1, const char* msg, int level)
     for (int i = level; lua_getinfo(L1, i, "sln", &ar); ++i)
     {
         if (strcmp(ar.what, "C") == 0)
-            continue;
-
-        if (lua_frameishidden(L1, i))
             continue;
 
         if (ar.source)
@@ -572,14 +545,6 @@ void luaL_addvalueany(luaL_Strbuf* B, int idx)
         luaL_addlstring(B, s, len);
         break;
     }
-    case LUA_TINTEGER:
-    {
-        int64_t n = lua_tointeger64(L, idx, nullptr);
-        char s[LUAI_MAXINT2STR];
-        char* e = luai_int2str(s, n);
-        luaL_addlstring(B, s, e - s);
-        break;
-    }
     default:
     {
         size_t len;
@@ -600,7 +565,7 @@ void luaL_pushresult(luaL_Strbuf* B)
     {
         luaC_checkGC(L);
 
-        // if we finished just at the end of the string buffer, we can convert it to a mutable stirng without a copy
+        // if we finished just at the end of the string buffer, we can convert it to a mutable string without a copy
         if (B->p == B->end)
         {
             setsvalue(L, L->top - 1, luaS_buffinish(L, storage));
@@ -671,14 +636,6 @@ const char* luaL_tolstring(lua_State* L, int idx, size_t* len)
     case LUA_TSTRING:
         lua_pushvalue(L, idx);
         break;
-    case LUA_TINTEGER:
-    {
-        int64_t l = lua_tointeger64(L, idx, nullptr);
-        char s[LUAI_MAXINT2STR];
-        char* e = luai_int2str(s, l);
-        lua_pushlstring(L, s, e - s);
-        break;
-    }
     default:
     {
         const void* ptr = lua_topointer(L, idx);

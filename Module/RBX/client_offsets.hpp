@@ -30,49 +30,49 @@ namespace RBX
 
 namespace ClientOffsets
 {
-    const uintptr_t Print                                = REBASE(0x1CD77F0);
-    const uintptr_t RawScheduler                         = REBASE(0x8F1E408);
-    const uintptr_t OpcodeLookupTable                    = REBASE(0x7419400);
+    const uintptr_t Print                                = REBASE(0x1BF4F90);
+    const uintptr_t RawScheduler                         = REBASE(0x8DA5D98);
+    const uintptr_t OpcodeLookupTable                    = REBASE(0x72C97B0);
     const uintptr_t AppdataInfoState                     = 0x360;
-    const uintptr_t AppdataInfo                          = REBASE(0x1495240);
-    const uintptr_t SingleSurfaceApp                     = REBASE(0x8336C00);
-    const uintptr_t SingleSurfaceAppVft                  = REBASE(0x7159208);
-    const uintptr_t LuaVMLoad                            = REBASE(0x42C8020);
-    const uintptr_t FireMouseClick                       = REBASE(0x3CC86D0);
-    const uintptr_t FireRightMouseClick                  = REBASE(0x3CC8870);
+    const uintptr_t AppdataInfo                          = REBASE(0x13B5770);
+    const uintptr_t SingleSurfaceApp                     = REBASE(0x81B7680);
+    const uintptr_t SingleSurfaceAppVft                  = REBASE(0x7007380);
+    const uintptr_t LuaVMLoad                            = REBASE(0x4123AB0);
+    const uintptr_t FireMouseClick                       = REBASE(0x3B3CAC0);
+    const uintptr_t FireRightMouseClick                  = REBASE(0x3B3CC60);
 
-    const uintptr_t FireMouseHoverEnter                  = REBASE(0x3CC9C40);
-    const uintptr_t FireMouseHoverLeave                  = REBASE(0x3CC9DE0);
-    const uintptr_t IsLegalSendEvent                     = REBASE(0x4851140);
+    const uintptr_t FireMouseHoverEnter                  = REBASE(0x3B3E030);
+    const uintptr_t FireMouseHoverLeave                  = REBASE(0x3B3E1D0);
+    const uintptr_t IsLegalSendEvent                     = REBASE(0x468CBB0);
 
-    const uintptr_t FireTouchInterest                    = REBASE(0x14D0000);
-    const uintptr_t FireProximityPrompt                  = REBASE(0x312A6F0);
+    const uintptr_t FireTouchInterest                    = REBASE(0x13EDE10);
+    const uintptr_t FireProximityPrompt                  = REBASE(0x2FC3D70);
 
-    const uintptr_t TaskTable                            = REBASE(0x8E56DB0);
-    const uintptr_t TaskSynchronize                      = REBASE(0x43B9810);
-    const uintptr_t TaskDesynchronize                    = REBASE(0x43B9D90);
-    const uintptr_t TaskDefer                            = REBASE(0x43BAAD0);
-    const uintptr_t TaskSpawn                            = REBASE(0x43BAFB0);
-    const uintptr_t TaskDelay                            = REBASE(0x43BB4C0);
-    const uintptr_t TaskWait                             = REBASE(0x43BB7C0);
-    const uintptr_t TaskCancel                           = REBASE(0x43BBAA0);
+    const uintptr_t TaskTable                            = REBASE(0x8CDD140);
+    const uintptr_t TaskSynchronize                      = REBASE(0x4210B70);
+    const uintptr_t TaskDesynchronize                    = REBASE(0x42110D0);
+    const uintptr_t TaskDefer                            = REBASE(0x4211E10);
+    const uintptr_t TaskSpawn                            = REBASE(0x42122E0);
+    const uintptr_t TaskDelay                            = REBASE(0x42127E0);
+    const uintptr_t TaskWait                             = REBASE(0x4212AD0);
+    const uintptr_t TaskCancel                           = REBASE(0x4212DA0);
 
-    const uintptr_t ScriptContextResume                  = REBASE(0x4379900);
-    const uintptr_t GetScriptVMState                     = REBASE(0x42D3B20);
-    const uintptr_t CastArgs                             = REBASE(0x422A710);
-    const uintptr_t ConnectionDisconnect                 = REBASE(0x4297720);
+    const uintptr_t ScriptContextResume                  = REBASE(0x41D21D0);
+    const uintptr_t GetScriptVMState                     = REBASE(0x412F350);
+    const uintptr_t CastArgs                             = REBASE(0x408A130);
+    const uintptr_t ConnectionDisconnect                 = REBASE(0x40F6670);
 
     namespace InstanceBridge {
-        const uintptr_t Push                             = REBASE(0x42B6E70);
+        const uintptr_t Push                             = REBASE(0x41140D0);
     }
 
     namespace RobloxProperty {
-        const uintptr_t GetProperty                      = REBASE(0x1D16EE0);
-        const uintptr_t KTable                           = REBASE(0x85FEA80);
-        const uintptr_t NameManagerPtr                   = REBASE(0x8659048);
-        const uintptr_t InternPropertyName               = REBASE(0x2AA0950);
-        const uintptr_t LookupPropertyName               = REBASE(0x2AA0D60);
-        constexpr uintptr_t PropertyMapOffset            = 0x1E0;
+        const uintptr_t GetProperty                      = REBASE(0x1C2F7D0);
+        const uintptr_t KTable                           = REBASE(0x8483460);
+        const uintptr_t NameManagerPtr                   = REBASE(0x84DD518);
+        const uintptr_t InternPropertyName               = REBASE(0x296B310);
+        const uintptr_t LookupPropertyName               = REBASE(0x296B720);
+        constexpr uintptr_t PropertyMapOffset            = 0x1E8;
         constexpr uintptr_t NameId                       = 0x20;
         constexpr uint32_t MaxNameId                     = 0x4000;
     }
@@ -85,8 +85,8 @@ namespace ClientOffsets
     }
 
     namespace MemberMap {
-        constexpr uintptr_t Capacity                     = 0x1E4;
-        constexpr uintptr_t Mask                         = 0x1F8;
+        constexpr uintptr_t Capacity                     = 0x1EC;
+        constexpr uintptr_t Mask                         = 0x200;
     }
 
     namespace CallbackDesc {
@@ -107,13 +107,13 @@ namespace ClientOffsets
         constexpr uintptr_t LiveRefThread                = 0x28;
         constexpr uintptr_t LiveRefValueRef              = 0x34;
         const uintptr_t BinderVftable                    = REBASE(0x0);
-        const uintptr_t AsyncTrampoline                  = REBASE(0xB8D6E0);
+        const uintptr_t AsyncTrampoline                  = REBASE(0xB12C90);
         const uintptr_t LambdaVftable                    = REBASE(0x0);
     }
 
     namespace RobloxThread {
-        const uintptr_t IdentityPtr                          = REBASE(0x862AC48);
-        const uintptr_t Impersonator                         = REBASE(0x1CEA200);
+        const uintptr_t IdentityPtr                          = REBASE(0x84AED78);
+        const uintptr_t Impersonator                         = REBASE(0x42D1D50);
         const uintptr_t GetTlsPointer                        = REBASE(0xC700);
         constexpr uintptr_t IdentityStructIdentity           = 0x0;
         constexpr uintptr_t IdentityStructCapabilities       = 0x28;
@@ -121,10 +121,13 @@ namespace ClientOffsets
     }
 
     namespace Flags {
-        const uintptr_t LockViolationInstanceCrash       = REBASE(0x827DAC8);
-        const uintptr_t LockViolationScriptCrash         = REBASE(0x8268820);
-        const uintptr_t LuaStepIntervalMsOverrideEnabled = REBASE(0x8269190);
-        const uintptr_t TaskSchedulerTargetFps           = REBASE(0x8244258);
+        // Kept in sync with FFlagOffsets::FFlags in fflags.hpp (theo's dump for
+        // this build). The pre-update values below were stale and made e.g.
+        // setfpscap write to the wrong address.
+        const uintptr_t LockViolationInstanceCrash       = REBASE(0x813E980);
+        const uintptr_t LockViolationScriptCrash         = REBASE(0x8128820);
+        const uintptr_t LuaStepIntervalMsOverrideEnabled = REBASE(0x8129250);
+        const uintptr_t TaskSchedulerTargetFps           = REBASE(0x8104130);
     }
 
     namespace Bytecode {
@@ -132,57 +135,57 @@ namespace ClientOffsets
     }
 
     namespace Luau {
-        const uintptr_t Luau_Execute                     = REBASE(0x26A91B0);
-        const uintptr_t LuaO_NilObject                   = REBASE(0x69919C8);
-        const uintptr_t LuaH_DummyNode                   = REBASE(0x69767A8);
-        const uintptr_t LuaC_Step                        = REBASE(0x268F7F0);
-        const uintptr_t GcStep                           = REBASE(0x268F480);
-        const uintptr_t Freeobj                          = REBASE(0x268DE20);
-        const uintptr_t Luau_Load                        = REBASE(0x2691BD0);
-        const uintptr_t LuaT_Eventnames                  = REBASE(0x6991A50);
-        const uintptr_t LuaT_Typenames                   = REBASE(0x69919E0);
+        const uintptr_t Luau_Execute                     = REBASE(0x258E0C0);
+        const uintptr_t LuaO_NilObject                   = REBASE(0x67DBCA8);
+        const uintptr_t LuaH_DummyNode                   = REBASE(0x67C4778);
+        const uintptr_t LuaC_Step                        = REBASE(0x2575E10);
+        const uintptr_t GcStep                           = REBASE(0x2575AF0);
+        const uintptr_t Freeobj                          = REBASE(0x2574580);
+        const uintptr_t Luau_Load                        = REBASE(0x25781D0);
+        const uintptr_t LuaT_Eventnames                  = REBASE(0x67DBD50);
+        const uintptr_t LuaT_Typenames                   = REBASE(0x67DBCD0);
     }
 
-    const uintptr_t LuaD_throw                           = REBASE(0x266A470);
-    const uintptr_t luaF_freeproto                       = REBASE(0x26A2FC0);
-    const uintptr_t luaF_newproto                        = REBASE(0x26A2000);
-    const uintptr_t luaL_argerrorL                       = REBASE(0x2673020);
-    const uintptr_t currfuncname                         = REBASE(0x2672FA0);
-    const uintptr_t luaG_runerrorL                       = REBASE(0x26A17A0); 
-    const uintptr_t luaO_pushvfstring                    = REBASE(0x269F600);
-    const uintptr_t luaD_rawrunprotected                 = REBASE(0x266A440);
-    const uintptr_t luaA_toobject                        = REBASE(0x2664200);
-    const uintptr_t lua_pushvfstring                     = REBASE(0x2665620);
-    const uintptr_t pseudo2addr                          = REBASE(0x2664140);
-    const uintptr_t get_capabilites                      = REBASE(0x1D18C30);
-    const uintptr_t lua_clock                            = REBASE(0x26C49E0);
+    const uintptr_t LuaD_throw                           = REBASE(0x2551BB0);
+    const uintptr_t luaF_freeproto                       = REBASE(0x2587E10);
+    const uintptr_t luaF_newproto                        = REBASE(0x2586E60);
+    const uintptr_t luaL_argerrorL                       = REBASE(0x255A830);
+    const uintptr_t currfuncname                         = REBASE(0x255A7B0);
+    const uintptr_t luaG_runerrorL                       = REBASE(0x2586610); 
+    const uintptr_t luaO_pushvfstring                    = REBASE(0x2584460);
+    const uintptr_t luaD_rawrunprotected                 = REBASE(0x2551B80);
+    const uintptr_t luaA_toobject                        = REBASE(0x254B840);
+    const uintptr_t lua_pushvfstring                     = REBASE(0x254CD40);
+    const uintptr_t pseudo2addr                          = REBASE(0x254B780);
+    const uintptr_t get_capabilites                      = REBASE(0x1C31460);
+    const uintptr_t lua_clock                            = REBASE(0x25A9F10);
 
     namespace LuaError {
-        const uintptr_t readonlyerror                    = REBASE(0x26A0C10);
-        const uintptr_t methoderror                      = REBASE(0x26A0BD0);
-        const uintptr_t indexerror                       = REBASE(0x26A0AD0);
-        const uintptr_t ordererror                       = REBASE(0x26A0A50);
-        const uintptr_t forerrorL                        = REBASE(0x26A0920);
+        const uintptr_t readonlyerror                    = REBASE(0x2585A80);
+        const uintptr_t methoderror                      = REBASE(0x2585A40);
+        const uintptr_t indexerror                       = REBASE(0x2585940);
+        const uintptr_t ordererror                       = REBASE(0x25858C0);
+        const uintptr_t forerrorL                        = REBASE(0x2585790);
     }
 
-    const uintptr_t newpage                              = REBASE(0x26C3910);
-    const uintptr_t newclasspage                         = REBASE(0x26C41A0); 
-    const uintptr_t freeclasspage                        = REBASE(0x26C3750);
-    const uintptr_t freeblock                            = REBASE(0x26C32A0);
-    const uintptr_t luaM_free                            = REBASE(0x26C3350);
-    const uintptr_t luaM_freegco                         = REBASE(0x26C3400);
-    const uintptr_t luaM_visitgco                        = REBASE(0x26C3600);
-    const uintptr_t luaM_toobig                          = REBASE(0x26C3270);
+    const uintptr_t newpage                              = REBASE(0x25A8E40);
+    const uintptr_t newclasspage                         = REBASE(0x25A96D0); 
+    const uintptr_t freeclasspage                        = REBASE(0x25A8C80);
+    const uintptr_t freeblock                            = REBASE(0x25A87C0);
+    const uintptr_t luaM_free                            = REBASE(0x25A8870);
+    const uintptr_t luaM_freegco                         = REBASE(0x25A8920);
+    const uintptr_t luaM_visitgco                        = REBASE(0x25A8B20);
+    const uintptr_t luaM_toobig                          = REBASE(0x25A8790);
 
     namespace Signal {
         constexpr uintptr_t next              = 0x10;
         constexpr uintptr_t enabled           = 0x20;
         constexpr uintptr_t ListHead          = 0x8;
 
-        const uintptr_t ConnectionDisconnectRaw = REBASE(0x4B477B0);
-        const uintptr_t ConnectionUnlink        = REBASE(0x4B47C00);
-        const uintptr_t ConnectionPushFront     = REBASE(0x4AF11D0);
-        const uintptr_t ConnectionConnected     = REBASE(0x4B47940);
+        const uintptr_t ConnectionDisconnectRaw = REBASE(0x4968FD0);
+        const uintptr_t ConnectionUnlink        = REBASE(0x4969420);
+        const uintptr_t ConnectionPushFront     = REBASE(0x49698D0);
+        const uintptr_t ConnectionConnected     = REBASE(0x4969160);
 
         namespace SignalSlotWrapper {
             constexpr uintptr_t Ptr       = 0x10;
@@ -262,13 +265,13 @@ namespace ClientOffsets
         const uintptr_t Children                         = 0x70;
         const uintptr_t PlaceId                          = 0x1A0;
         const uintptr_t FakeDataModelToDataModel         = 0x1F8;
-        const uintptr_t FakeDataModelPointer             = REBASE(0x8F8E968);
+        const uintptr_t FakeDataModelPointer             = REBASE(0x8E16368);
         const uintptr_t InParallelPhase                  = 0x55D;
     }
 
     namespace ScriptContext {
-        const uintptr_t Face                             = 0xA28;
-        const uintptr_t RequireBypass                    = 0xC30;
+        const uintptr_t Face                             = 0x9E8;
+        const uintptr_t RequireBypass                    = 0xBC4;
         const uintptr_t DataModel                        = 0x100;
     }
 
@@ -300,25 +303,25 @@ namespace ClientOffsets
         const uintptr_t GetSetVftGetter                  = 0x18;
         const uintptr_t GetSetVftSetter                  = 0x20;
         const uintptr_t RefDescriptorVftGetValue         = 0x100;
-        const uintptr_t ValueGetUnavailable              = REBASE(0xA866F0);
-        const uintptr_t ValueSetUnavailable              = REBASE(0x7C7140);
-        const uintptr_t OptionalCoordinateFrameDtor      = REBASE(0x1CF82D0);
-        const uintptr_t IdentityCoordinateFrame          = REBASE(0x6868918);
+        const uintptr_t ValueGetUnavailable              = REBASE(0xA1A140);
+        const uintptr_t ValueSetUnavailable              = REBASE(0x783B60);
+        const uintptr_t OptionalCoordinateFrameDtor      = REBASE(0x1C148E0);
+        const uintptr_t IdentityCoordinateFrame          = REBASE(0x66AA3E0);
         const uintptr_t OptionalCoordinateFrameEngaged   = 0x2;
         const uintptr_t OptionalCoordinateFrameTagMask   = 0x3;
-        const uintptr_t NetAssetRefRelease               = REBASE(0x1D0AB80);
+        const uintptr_t NetAssetRefRelease               = REBASE(0x1C23F40);
         const uintptr_t NetAssetRefOwnerRep              = 0x8;
         const uintptr_t NetAssetRefHandleGuid            = 0x10;
         const uintptr_t NetAssetRefHandleVersion         = 0x18;
         const uintptr_t NetAssetRefHandleType            = 0x20;
-        const uintptr_t NetAssetManagerGet               = REBASE(0x1D0B4A0);
+        const uintptr_t NetAssetManagerGet               = REBASE(0x1C244A0);
         const uintptr_t NetAssetProxyHolder              = 0x8;
-        const uintptr_t NetAssetProxyVftSolidMesh        = REBASE(0x70FE568);
-        const uintptr_t SolidMeshSize                    = REBASE(0x2C2BA60);
-        const uintptr_t SolidMeshWrite                   = REBASE(0x2C2BB40);
+        const uintptr_t NetAssetProxyVftSolidMesh        = REBASE(0x6FAC560);
+        const uintptr_t SolidMeshSize                    = REBASE(0x2AFCC50);
+        const uintptr_t SolidMeshWrite                   = REBASE(0x2AFCD30);
         const uintptr_t SharedRepWeakCount               = 0xC;
         const uintptr_t SharedRepDeleteThisVftSlot       = 0x8;
-        const uintptr_t PushContent                      = REBASE(0x42872D0);
+        const uintptr_t PushContent                      = REBASE(0x40E6730);
         constexpr uint32_t ContentSourceTypeMax          = 4;
         const uintptr_t ReadCapabilities                 = 0x38;
         constexpr uint64_t SecurityLevelCapabilities     = 0x3FULL;
@@ -347,7 +350,7 @@ namespace ClientOffsets
         const uintptr_t SlotStride                       = 0x50;
         const uintptr_t SlotKey                          = 0x0;
         const uintptr_t SlotValue                        = 0x20;
-        const uintptr_t Destroy                          = REBASE(0xA98610);
+        const uintptr_t Destroy                          = REBASE(0xA2BC20);
     }
 
     namespace RemoteEvent {
@@ -375,12 +378,12 @@ namespace ClientOffsets
     namespace RenderView {
         const uintptr_t RenderJobToView                  = 0x1E0;
         const uintptr_t ViewToDevice                     = 0x10;
-        const uintptr_t DeviceToSwapChain                = 0x88;
+        const uintptr_t DeviceToSwapChain                = 0x80;
     }
 
     namespace RakNet {
-        const uintptr_t       PeerVTable        = REBASE(0x71A0638);
-        const int             VTableSlotCount   = 124;
+        const uintptr_t       PeerVTable        = REBASE(0x704EE60);
+        const int             VTableSlotCount   = 123;
         const int             SendSlot          = 20;
         const uint32_t        JobToPeerOff      = 0x1E0;
         constexpr const char* JobNameSend       = "Net Peer Send";
@@ -388,14 +391,14 @@ namespace ClientOffsets
     }
 
     namespace RbxTransport {
-        const uintptr_t       ConnVTable          = REBASE(0x7206440);
-        const int             VTableSlotCount     = 28;
+        const uintptr_t       ConnVTable          = REBASE(0x70B4F38);
+        const int             VTableSlotCount     = 27;
 
         const int             SendSlot            = 7;
         const int             SendRawSlot         = 6;
 
-        const uintptr_t       Send                = REBASE(0x3B52CB0);
-        const uintptr_t       SendRaw             = REBASE(0x3B52A00);
+        const uintptr_t       Send                = REBASE(0x39CE700);
+        const uintptr_t       SendRaw             = REBASE(0x39CE420);
 
         const int             ConnShadowSlots     = 29;
 
@@ -405,8 +408,8 @@ namespace ClientOffsets
             const uintptr_t   Send                = REBASE(0x4A27830);
             const uintptr_t   SendRaw             = REBASE(0x3B52190);
         }
-        const uintptr_t       Disconnect          = REBASE(0x3B53D50);
-        const uintptr_t       Flush               = REBASE(0x3B541E0);
+        const uintptr_t       Disconnect          = REBASE(0x39CF7C0);
+        const uintptr_t       Flush               = REBASE(0x39CFC50);
 
 
         const int             PayloadDataSlot     = 1;
@@ -415,8 +418,8 @@ namespace ClientOffsets
         const uint32_t        RawPayloadLenOff    = 0x030;
 
         namespace Client {
-            const uintptr_t   MainVTable           = REBASE(0x728FA78);
-            const uintptr_t   InterfaceVTable      = REBASE(0x728FA20);
+            const uintptr_t   MainVTable           = REBASE(0x713EC90);
+            const uintptr_t   InterfaceVTable      = REBASE(0x713EC38);
             const uint32_t    InterfaceVPtrOff     = 0x98;
             const int         InterfaceSlotCount   = 10;
             const int         OnReceiveSlot        = 2;
@@ -426,7 +429,7 @@ namespace ClientOffsets
         }
 
         namespace Channel {
-            const uintptr_t   InterfaceVTable      = REBASE(0x7193280);
+            const uintptr_t   InterfaceVTable      = REBASE(0x7041A88);
         }
 
         namespace AppConnection {
@@ -436,59 +439,59 @@ namespace ClientOffsets
 
     namespace RobloxThread {
         const uintptr_t GetDataModelLockOwner = REBASE(0xC8A0);
-        const uintptr_t GetCapabilities       = REBASE(0x1D18C30);
+        const uintptr_t GetCapabilities       = REBASE(0x1C31460);
     }
 
     namespace Scheduler {
-        const uintptr_t StepWaitingHybridScripts = REBASE(0x43B00A0);
+        const uintptr_t StepWaitingHybridScripts = REBASE(0x4207740);
     }
 
     namespace FakeDataModel {
-        const uintptr_t     DataModelDeleterPointer = REBASE(0x8F8E960);
-        const uintptr_t     Pointer                 = REBASE(0x8F8E968);
+        const uintptr_t     DataModelDeleterPointer = REBASE(0x8E16360);
+        const uintptr_t     Pointer                 = REBASE(0x8E16368);
     }
 
     namespace Signal {
-        const uintptr_t WeakThreadRefVftable         = REBASE(0x7043E00);
-        const uintptr_t FunctionSlotVftable          = REBASE(0x7268EE0);
-        const uintptr_t FunctionSlotAlternateVftable = REBASE(0x7268E28);
-        const uintptr_t WaitSlotVftable              = REBASE(0x7268BA8);
-        const uintptr_t WeakObjectRefVftable         = REBASE(0x703B548);
-        const uintptr_t SignalType                   = REBASE(0x8F640B0);
-        const uintptr_t ConnectionType               = REBASE(0x8E671E4);
-        const uintptr_t GetArguments                 = REBASE(0x4342380);
-        const uintptr_t RaiseEventInvocation         = REBASE(0x1D2D000);
-        const uintptr_t Once                         = REBASE(0x4237AE0);
-        const uintptr_t Wait                         = REBASE(0x4237C80);
+        const uintptr_t WeakThreadRefVftable         = REBASE(0x6EF1AC8);
+        const uintptr_t FunctionSlotVftable          = REBASE(0x7117DF0);
+        const uintptr_t FunctionSlotAlternateVftable = REBASE(0x7117C68);
+        const uintptr_t WaitSlotVftable              = REBASE(0x7117BD8);
+        const uintptr_t WeakObjectRefVftable         = REBASE(0x6EE9288);
+        const uintptr_t SignalType                   = REBASE(0x8DEBA50);
+        const uintptr_t ConnectionType               = REBASE(0x8CED504);
+        const uintptr_t GetArguments                 = REBASE(0x419C7D0);
+        const uintptr_t RaiseEventInvocation         = REBASE(0x1C44010);
+        const uintptr_t Once                         = REBASE(0x40F4F40);
+        const uintptr_t Wait                         = REBASE(0x40F50E0);
         const uintptr_t AsyncCallbackVftable         = REBASE(0x0);
         const uintptr_t SyncCallbackVftable          = REBASE(0x0);
         const uintptr_t CallbackBinderVftable        = REBASE(0x0);
     }
 
     namespace SharedString {
-        const uintptr_t Create  = REBASE(0x4AFC3A0);
-        const uintptr_t Release = REBASE(0x7EB520);
+        const uintptr_t Create  = REBASE(0x49745C0);
+        const uintptr_t Release = REBASE(0x7B3A70);
         const uintptr_t NodeString = 0x18;
         const uintptr_t NodeRefCount = 0x40;
     }
 
     namespace Flags {
-        const uintptr_t Registry                           = REBASE(0x865E868);
-        const uintptr_t ValueGetSetIntVftable              = REBASE(0x7298248);
-        const uintptr_t ValueGetSetDynamicIntVftable       = REBASE(0x7298018);
-        const uintptr_t ValueGetSetStringVftable           = REBASE(0x7297F00);
-        const uintptr_t ValueGetSetBoolVftable             = REBASE(0x7297CD0);
-        const uintptr_t ValueGetSetDynamicBoolVftable      = REBASE(0x7298130);
-        const uintptr_t ValueGetSetChannelVftable          = REBASE(0x7297DE8);
+        const uintptr_t Registry                           = REBASE(0x84E2BF8);
+        const uintptr_t ValueGetSetIntVftable              = REBASE(0x7147A20);
+        const uintptr_t ValueGetSetDynamicIntVftable       = REBASE(0x7147B38);
+        const uintptr_t ValueGetSetStringVftable           = REBASE(0x7147C50);
+        const uintptr_t ValueGetSetBoolVftable             = REBASE(0x7147908);
+        const uintptr_t ValueGetSetDynamicBoolVftable      = REBASE(0x71477F0);
+        const uintptr_t ValueGetSetChannelVftable          = REBASE(0x7147D68);
         const uintptr_t LuauCIProto                        = REBASE(0x0);
         const uintptr_t LuauCallFeedback                   = REBASE(0x0);
         const uintptr_t LuauBackedgeHeapCheck              = REBASE(0x0);
-        const uintptr_t LuauPromoteProto                   = REBASE(0x82B94C0);
-        const uintptr_t DebugLuauUserDefinedClassesRuntime = REBASE(0x82B94A0);
+        const uintptr_t LuauPromoteProto                   = REBASE(0x81674E0);
+        const uintptr_t DebugLuauUserDefinedClassesRuntime = REBASE(0x81674C0);
         const uintptr_t LuauFastpcall                      = REBASE(0x81E60C0);
-        const uintptr_t UseRbxTransportClient              = REBASE(0x825C600);
-        const uintptr_t RakNetFallbackToRbxTransport       = REBASE(0x8274A50);
-        const uintptr_t SendsGoThroughConnection           = REBASE(0x8234448);
+        const uintptr_t UseRbxTransportClient              = REBASE(0x811C498);
+        const uintptr_t RakNetFallbackToRbxTransport       = REBASE(0x8135AB8);
+        const uintptr_t SendsGoThroughConnection           = REBASE(0x80F44C0);
         const uintptr_t RefactorIngressFlow                = REBASE(0x8189A90);
         namespace Reg {
             constexpr uintptr_t ListHead      = 0x8;
@@ -505,31 +508,31 @@ namespace ClientOffsets
     }
 
     namespace InstanceBridge {
-        const uintptr_t UserdataIndex    = REBASE(0x42B4900);
-        const uintptr_t UserdataNewIndex = REBASE(0x42B5B00);
-        const uintptr_t Index            = REBASE(0x42B2A50);
-        const uintptr_t NewIndex         = REBASE(0x42B22A0);
-        const uintptr_t UserdataNamecall = REBASE(0x42B61D0);
-        const uintptr_t RegisterUserdata = REBASE(0x2669140);
-        const uintptr_t UserdataTag      = REBASE(0x8F64AB0);
+        const uintptr_t UserdataIndex    = REBASE(0x4111C30);
+        const uintptr_t UserdataNewIndex = REBASE(0x4112D80);
+        const uintptr_t Index            = REBASE(0x410FD80);
+        const uintptr_t NewIndex         = REBASE(0x410F5E0);
+        const uintptr_t UserdataNamecall = REBASE(0x4113430);
+        const uintptr_t RegisterUserdata = REBASE(0x2550850);
+        const uintptr_t UserdataTag      = REBASE(0x8DEC450);
     }
 
     namespace Luau {
-        const uintptr_t NewUserdataTagged       = REBASE(0x2668590);
-        const uintptr_t Throw                   = REBASE(0x266A470);
-        const uintptr_t CallInternal            = REBASE(0x2632230);
-        const uintptr_t CallYieldable           = REBASE(0x26361C0);
-        const uintptr_t Execute                 = REBASE(0x26B6520);
-        const uintptr_t ExecuteSingleStep       = REBASE(0x26A99B0);
-        const uintptr_t GetTypeName             = REBASE(0x2664E30);
-        const uintptr_t GetObjectTypeName       = REBASE(0x26A49C0);
-        const uintptr_t GetObjectTypeNameString = REBASE(0x26A4830);
-        const uintptr_t GetLine                 = REBASE(0x26A05D0);
+        const uintptr_t NewUserdataTagged       = REBASE(0x254FC70);
+        const uintptr_t Throw                   = REBASE(0x2551BB0);
+        const uintptr_t CallInternal            = REBASE(0x254DD60);
+        const uintptr_t CallYieldable           = REBASE(0x2551C90);
+        const uintptr_t Execute                 = REBASE(0x259B710);
+        const uintptr_t ExecuteSingleStep       = REBASE(0x258E8D0);
+        const uintptr_t GetTypeName             = REBASE(0x254C4D0);
+        const uintptr_t GetObjectTypeName       = REBASE(0x25897E0);
+        const uintptr_t GetObjectTypeNameString = REBASE(0x2589650);
+        const uintptr_t GetLine                 = REBASE(0x2585450);
     }
 }
 
 namespace ClientBuild {
-    inline constexpr const char* Version = "version-4ea8e85481e34f46";
+    inline constexpr const char* Version = "version-2c6fd5e09aaf4cfa";
 }
 
 // Measured in RobloxPlayerBeta_4ea8e85481e34f46_decrypted.exe:

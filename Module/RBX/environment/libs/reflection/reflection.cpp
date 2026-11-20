@@ -345,6 +345,29 @@ namespace Reflection
         };
     }
 
+    void ClearTrackedCallback(lua_State* L, int instanceIndex, int propertyIndex)
+    {
+        if (!L || !lua_isuserdata(L, instanceIndex) || !lua_isstring(L, propertyIndex))
+            return;
+
+        uintptr_t instance = 0;
+        void* userdata = lua_touserdata(L, instanceIndex);
+        if (!userdata || !can_read(reinterpret_cast<uintptr_t>(userdata)) ||
+            !(instance = *reinterpret_cast<uintptr_t*>(userdata)))
+            return;
+
+        const char* property = lua_tostring(L, propertyIndex);
+        if (!property || !property[0])
+            return;
+
+        auto instanceIt = callback_values.find(instance);
+        if (instanceIt == callback_values.end())
+            return;
+        instanceIt->second.erase(property);
+        if (instanceIt->second.empty())
+            callback_values.erase(instanceIt);
+    }
+
     bool resolve_property(lua_State* L, std::uintptr_t& out_instance, std::uintptr_t& out_prop)
     {
         constexpr std::uintptr_t ClassDescriptorOffset = 0x18;
@@ -1130,8 +1153,11 @@ namespace Reflection
 
         if (!read_value(Descriptor + Offsets::Properties::CallbackOffsetInDescriptor, RelativeOffset) || RelativeOffset == 0)
         {
-            lua_pushnil(L);
-            return 1;
+            // A real callback property has a non-zero descriptor offset. If it
+            // is zero the property simply is not a callback (e.g. "Name"), so
+            // error as debUNC expects.
+            luaL_argerror(L, 2, ("property is not a callback"));
+            return 0;
         }
 
         uintptr_t Holder = static_cast<std::uintptr_t>(static_cast<std::intptr_t>(Instance) + static_cast<std::intptr_t>(RelativeOffset));

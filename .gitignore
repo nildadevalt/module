@@ -52,4 +52,26 @@ UI/
 # OS
 Thumbs.db
 .DS_Store
-.tmp_lvr/
+
+# Local debug / reverse-engineering scratch dirs and artifacts (not source)
+.tmp*/
+.tmp_*
+RobloxPlayerBeta.7z
+*.raw
+
+# Debug probe scripts created during this build migration
+Module/.maintenance/auto_tests/probe_*.lua
+Module/.maintenance/auto_tests/*_probe*.lua
+Module/.maintenance/auto_tests/soak_*.lua
+Module/.maintenance/auto_tests/debunc_nodebug_run.lua
+Module/.maintenance/auto_tests/debunc_run_once.lua
+Module/.maintenance/auto_tests/nop.lua
+Module/.maintenance/auto_tests/sunc_decoded.lua
+Module/.maintenance/auto_tests/sunc_run_once.lua
+Module/.maintenance/auto_tests/tiny.lua
+Module/.maintenance/sunc_official_once.lua
+
+# Unreferenced Luau dump leftovers (not part of the build)
+Module/Dependencies/Luau2/Bytecode/include/Luau/BytecodeDump.h
+Module/Dependencies/Luau2/Bytecode/include/Luau/BytecodeSlotAllocation.h
+Module/Dependencies/Luau2/Bytecode/src/BytecodeDump.cpp

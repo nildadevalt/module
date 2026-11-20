@@ -846,10 +846,86 @@ namespace Oth
     }
 
     // â”€â”€â”€ API: trampoline_call(fn, ...) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // trampoline_call(fn, fakeStack, options, ...): protected call returning
+    // (success, results...). options.env/identity are honoured; the first
+    // fakeStack entry is published for a debug.info shim.
     int tc(lua_State* L)
     {
         luaL_checktype(L, 1, LUA_TFUNCTION);
-        lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+
+        const int top = lua_gettop(L);   // 1=fn, 2=fakeStack, 3=options, 4..=args
+        const int argCount = top >= 3 ? (top - 3) : 0;
+
+        if (top >= 2 && lua_istable(L, 2))
+        {
+            lua_getfield(L, 2, "1");
+            if (lua_istable(L, -1))
+            {
+                lua_getfield(L, -1, "func");
+                lua_getfield(L, -2, "currentline");
+                lua_pushliteral(L, "__rxs_trampoline_frame");
+                lua_rawget(L, LUA_REGISTRYINDEX);
+                if (!lua_istable(L, -1))
+                {
+                    lua_pop(L, 1);
+                    lua_newtable(L);
+                    lua_pushliteral(L, "__rxs_trampoline_frame");
+                    lua_pushvalue(L, -2);
+                    lua_rawset(L, LUA_REGISTRYINDEX);
+                }
+                lua_pushliteral(L, "currentline");
+                lua_pushvalue(L, -3);
+                lua_rawset(L, -3);
+                lua_pushliteral(L, "active");
+                lua_pushboolean(L, 1);
+                lua_rawset(L, -3);
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1);
+        }
+
+        int oldIdentity = -1;
+        bool changedIdentity = false;
+
+        if (top >= 3 && lua_istable(L, 3))
+        {
+            lua_getfield(L, 3, "env");
+            if (lua_istable(L, -1))
+                lua_setfenv(L, 1);
+            lua_pop(L, 1);
+
+            lua_getfield(L, 3, "identity");
+            if (lua_isnumber(L, -1) && L->userdata)
+            {
+                int identity = (int)lua_tointeger(L, -1);
+                oldIdentity = L->userdata->identity;
+                L->userdata->identity = identity;
+                L->userdata->capabilities = identity >= 7 ? MaxCapabilities
+                    : (0xFFFFFFFFFFFFFF00ULL | Roblox::GetCapabilities(&identity));
+                changedIdentity = true;
+            }
+            lua_pop(L, 1);
+        }
+
+        if (top >= 3) { lua_remove(L, 3); lua_remove(L, 2); }
+
+        const int status = lua_pcall(L, argCount, LUA_MULTRET, 0);
+
+        if (changedIdentity && L->userdata)
+            L->userdata->identity = oldIdentity;
+
+        lua_pushliteral(L, "__rxs_trampoline_frame");
+        lua_rawget(L, LUA_REGISTRYINDEX);
+        if (lua_istable(L, -1))
+        {
+            lua_pushliteral(L, "active");
+            lua_pushnil(L);
+            lua_rawset(L, -3);
+        }
+        lua_pop(L, 1);
+
+        lua_pushboolean(L, status == LUA_OK);
+        lua_insert(L, 1);
         return lua_gettop(L);
     }
 

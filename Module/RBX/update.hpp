@@ -180,19 +180,19 @@ public:
 // ══════════════════════════════════════════════════════════════════════════════
 #define CLOSURE_DEBUGNAME_ENC VMValue0
 #define PROTO_P_ENC VMValue0
-#define CLOSURE_CONT_ENC VMValue2
+#define CLOSURE_CONT_ENC VMValue3
 #define LSTATE_STACKSIZE_ENC VMValue1
-#define PROTO_ABSLINEINFO_ENC VMValue4
-#define PROTO_DEBUGINSN_ENC VMValue1
-#define PROTO_DEBUGNAME_ENC VMValue1
+#define PROTO_ABSLINEINFO_ENC VMValue1
+#define PROTO_DEBUGINSN_ENC VMValue2
+#define PROTO_DEBUGNAME_ENC VMValue4
 #define PROTO_LINEINFO_ENC VMValue4
-#define PROTO_LOCVARS_ENC VMValue4
-#define PROTO_SOURCE_ENC VMValue2
-#define PROTO_TYPEINFO_ENC VMValue4
-#define PROTO_UPVALUES_ENC VMValue2
-#define PROTO_USERDATA_ENC VMValue3
-#define TSTRING_HASH_ENC VMValue1
-#define UDATA_META_ENC VMValue1
+#define PROTO_LOCVARS_ENC VMValue2
+#define PROTO_SOURCE_ENC VMValue4
+#define PROTO_TYPEINFO_ENC VMValue1
+#define PROTO_UPVALUES_ENC VMValue1
+#define PROTO_USERDATA_ENC VMValue4
+#define TSTRING_HASH_ENC VMValue4
+#define UDATA_META_ENC VMValue4
 
 
 #define proto_lineinfo         PROTO_LINEINFO_ENC
@@ -248,7 +248,7 @@ namespace Offsets
         const uintptr_t CallbackFunctionOffset = ClientOffsets::CallbackChain::FunctionImpl;
         const uintptr_t LiveThreadRefOffset = ClientOffsets::CallbackChain::LambdaLiveRef;
         const uintptr_t CallbackThreadOffset = ClientOffsets::CallbackChain::LiveRefThread;
-        const uintptr_t LuaStateGlobalOffset = 0x60;
+        const uintptr_t LuaStateGlobalOffset = 0x68;
         const uintptr_t FunctionRefIdOffset = ClientOffsets::CallbackChain::LiveRefValueRef;
     }
 
@@ -299,9 +299,9 @@ namespace Offsets
         {
             constexpr uintptr_t thread = ClientOffsets::Slot_wrapper::thread;
             constexpr uintptr_t function_id = ClientOffsets::Signal::SignalSlot::Refs::functionRefId;
-            constexpr uintptr_t weak_object_ref_fallback = 0x38;
+            constexpr uintptr_t weak_object_ref_fallback = 0x90;
             constexpr uintptr_t weak_object_ref = ClientOffsets::Slot_wrapper::weak_object_ref;
-            constexpr uintptr_t weak_object_ref_legacy = 0x48;
+            constexpr uintptr_t weak_object_ref_legacy = 0x68;
         }
 
         namespace getter
@@ -343,7 +343,10 @@ namespace Offsets
     namespace ExtraSpace
     {
         const uintptr_t RequireBypass = ClientOffsets::ScriptContext::RequireBypass;
-        const uintptr_t ScriptContextToResume = ClientOffsets::ScriptContext::Face;
+        // ScriptContextResume (0x41D21D0) starts with `lea r15,[rcx-0x9E8]`:
+        // argument 1 must be ScriptContext + 0x9E8 (credosdev ExtraSpace::
+        // ScriptContextToResume). ZenBase's 0xA28 slot is stale for this build.
+        const uintptr_t ScriptContextToResume = 0x9E8;
     }
 
     namespace Scripts

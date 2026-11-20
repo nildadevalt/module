@@ -19,17 +19,16 @@
 // clang-format off
 struct stringtable {
     uint32_t saltmult; // 0x0
-    int size; // 0x4
-    uint32_t saltadd; // 0x8
+    uint32_t saltadd; // 0x4
+    uint8_t hashshift; // 0x8
     TString** hash; // 0x10
     uint32_t nuse; // 0x18
-    uint8_t hashshift; // 0x1C
+    int size; // 0x1C
 };
-
 // clang-format on
 
 /*
-** informations about a call
+** information about a call
 **
 ** the general Lua stack frame structure is as follows:
 ** - each function gets a stack frame, with function "registers" being stack slots on the frame
@@ -57,7 +56,6 @@ struct stringtable {
 ** the `flags` field in CallInfo contains internal execution flags that are important for pcall/etc, see LUA_CALLINFO_*
 */
 // clang-format off
-
 struct CallInfo {
     Proto* p; // 0x0
     TValue* func; // 0x8
@@ -75,7 +73,11 @@ struct CallInfo {
 #define LUA_CALLINFO_RETURN (1 << 0) // should the interpreter return after returning from this callinfo? first frame must have this set
 #define LUA_CALLINFO_HANDLE (1 << 1) // should the error thrown during execution get handled by continuation from this callinfo? func must be C
 #define LUA_CALLINFO_NATIVE (1 << 2) // should this function be executed using execution callback for native code
-#define LUA_CALLINFO_OPYIELD (1 << 3) // call frame has yielded on a non-call opcode and requires luaV_finishop
+#define LUA_CALLINFO_OPYIELD (1 << 3) // call frame has yielded on a non-call opcode and requires luau_finishop
+#define LUA_CALLINFO_PCALL (1 << 4)   // call frame was setup by a synthetic protected call and requires luau_pospcallsuccess
+
+#define TAGGED_PAGESET_BASE (LUA_TSTRING)
+#define TAGGED_PAGESET_SIZE (LUA_T_COUNT - TAGGED_PAGESET_BASE)
 
 #define curr_func(L) (clvalue(L->ci->func))
 #define ci_func(ci) (clvalue((ci)->func))
@@ -98,6 +100,7 @@ struct GCStats
     double endtimestamp = 0;
 };
 
+#ifdef LUAI_GCMETRICS
 struct GCCycleMetrics
 {
     size_t starttotalsizebytes = 0;
@@ -151,6 +154,7 @@ struct GCMetrics
     GCCycleMetrics lastcycle;
     GCCycleMetrics currcycle;
 };
+#endif
 
 // Callbacks that can be used to to redirect code execution from Luau bytecode VM to a custom implementation (AoT/JiT/sandboxing/...)
 struct lua_ExecutionCallbacks
@@ -168,7 +172,12 @@ struct lua_ExecutionCallbacks
         size_t* count
     ); // called to get the execution counter data and count {uint32_t, uint32_t, uint64_t}
     Proto* (*inlinefunction)(lua_State* L, Closure* caller, Closure* target, uint32_t pc); // called when inlining threshold is reached
-    void* reservedClientCallbacks[2];
+
+    // called when GC marks the function unless opted out with PEF_EXECLOCKED to examine if an action on a function will be needed later
+    void (*examinefunction)(lua_State* L, Proto* proto);
+    // called when GC cycle has been completed and the collector is paused
+    // functions previoulsy recorded by 'examinefunction' can be processed safely
+    void (*commitfunctions)(lua_State* L);
 };
 
 struct lua_UdataDirectAccessData
@@ -181,92 +190,53 @@ struct lua_UdataDirectAccessData
     lua_UserdataDirectNamecall namecall;
 };
 
+struct LuauPageset
+{
+    struct lua_Page* freepages[LUA_SIZECLASSES]; // cage GCO free pages, per size class
+    struct lua_Page* allpages;                   // all cage GCO pages (sweep target)
+    struct lua_Page* sweeppage;                  // sweep cursor
+};
+
 /*
 ** `global state', shared by all threads of this state
 */
 // clang-format off
-struct registryfree_value
-{
-private:
-    int _value;
-
-public:
-    registryfree_value() : _value(0) {}
-    registryfree_value(int val) : _value(val) {}
-    registryfree_value(const registryfree_value& other) : _value(other._value) {}
-
-    void operator=(const registryfree_value& value)
-    {
-        _value = value._value;
-    }
-
-    void operator=(const int& value)
-    {
-        _value = (_value & 0xF0000000) | (value & 0xFFFFFFF);
-    }
-
-    operator const int() const
-    {
-        return _value & 0xFFFFFFF;
-    }
-
-    bool operator==(const int& value) const
-    {
-        return (_value & 0xFFFFFFF) == value;
-    }
-
-    bool operator!=(const int& value) const
-    {
-        return (_value & 0xFFFFFFF) != value;
-    }
-};
-
-typedef registryfree_value registryfree_t;
-typedef registryfree_value RegistryFree;
-
-struct lua_Page;
-struct lua_jmpbuf;
-struct lua_CageAlloc { void* ptr; };
-
-// clang-format off
-struct LuauPageset { alignas(8) unsigned char opaque[0x150]; };
-
 struct global_State {
-    uint8_t gcdisabled; // 0x0
-    unsigned char gcstate; // 0x1
-    unsigned char currentwhite; // 0x2
-    size_t GCthreshold; // 0x8
-    size_t totalbytes; // 0x10
-    int gcgoal; // 0x18
-    int gcstepsize; // 0x1C
-    int gcstepmul; // 0x20
-    stringtable strt; // 0x28
-    lua_Alloc frealloc; // 0x48
-    void* ud; // 0x50
-    GCObject* gray; // 0x58
-    GCObject* grayagain; // 0x60
-    GCObject* weak; // 0x68
-    lua_Page* freepages[41]; // 0x70
-    UpVal uvhead; // 0x1B8
-    lua_State* mainthread; // 0x1E0
-    lua_Page* sweepgcopage; // 0x1E8
-    lua_Page* freegcopages[40]; // 0x1F0
-    lua_Page* allgcopages; // 0x330
-    TString* tmname[TM_N]; // 0x338
-    TString* ttname[LUA_T_COUNT]; // 0x3E0
-    LuaTable* mt[LUA_T_COUNT]; // 0x448
-    lua_CageAlloc cagealloc; // 0x4B0
-    lua_Page* allgcopages_cage; // 0x4B8
-    lua_Page* sweepgcopage_cage; // 0x4C0
-    lua_Page* freegcopages_cage[40]; // 0x4C8
-    void* cageud; // 0x608
-    TValue pseudotemp; // 0x610
-    TValue registry; // 0x620
-    registryfree_value registryfree; // 0x630
-    alignas(16) uint64_t rngstate; // 0x640
-    lua_Callbacks cb; // 0x648
-    unsigned __int64 ptrenckey[4]; // 0x6B8
-    lua_ExecutionCallbacks ecb; // 0x6D8
+    stringtable strt; // 0x0
+    lua_Alloc frealloc; // 0x20
+    void* ud; // 0x28
+    size_t GCthreshold; // 0x30
+    size_t totalbytes; // 0x38
+    GCObject* gray; // 0x40
+    GCObject* weak; // 0x48
+    GCObject* grayagain; // 0x50
+    unsigned char currentwhite; // 0x58
+    uint8_t gcdisabled; // 0x59
+    unsigned char gcstate; // 0x5A
+    int gcgoal; // 0x5C
+    int gcstepmul; // 0x60
+    int gcstepsize; // 0x64
+    lua_Page* freepages[40]; // 0x68
+    lua_Page* allgcopages; // 0x1A8
+    lua_Page* freegcopages[40]; // 0x1B0
+    lua_State* mainthread; // 0x2F0
+    alignas(16) lua_Page* sweepgcopage; // 0x300
+    UpVal uvhead; // 0x308
+    LuaTable* mt[LUA_T_COUNT]; // 0x330
+    TString* tmname[TM_N]; // 0x398
+    TString* ttname[LUA_T_COUNT]; // 0x440
+    lua_CageAlloc cagealloc; // 0x4A8
+    lua_Page* allgcopages_cage; // 0x4B0
+    lua_Page* freegcopages_cage[40]; // 0x4B8
+    lua_Page* sweepgcopage_cage; // 0x5F8
+    void* cageud; // 0x600
+    TValue pseudotemp; // 0x608
+    TValue registry; // 0x618
+    int registryfree; // 0x628
+    lua_Callbacks cb; // 0x630
+    unsigned __int64 ptrenckey[4]; // 0x6A0
+    unsigned __int64 rngstate; // 0x6C0
+    alignas(16) lua_ExecutionCallbacks ecb; // 0x6D0
     alignas(16) uint8_t ecbdata[LUA_EXECUTION_CALLBACK_STORAGE]; // 0x730
     lua_UdataDirectAccessData udatadirect[UTAG_INTERNAL_LIMIT]; // 0x930
     LuauPageset taggedpageset[8]; // 0x2DC0
@@ -303,27 +273,27 @@ struct lua_State {
     CommonHeader; // 0x0
     uint8_t status; // 0x3
     uint8_t activememcat; // 0x4
-    bool singlestep; // 0x5
-    bool isactive; // 0x6
-    TString* namecall; // 0x8
-    struct RobloxExtraSpace* userdata; // 0x10
+    bool isactive; // 0x5
+    bool singlestep; // 0x6
+    GCObject* gclist; // 0x8
+    LSTATE_STACKSIZE_ENC<int> stacksize; // 0x10
+    int size_ci; // 0x14
     CallInfo* end_ci; // 0x18
     CallInfo* base_ci; // 0x20
-    unsigned short nCcalls; // 0x28
-    unsigned short baseCcalls; // 0x2A
-    unsigned int cachedslot; // 0x2C
-    UpVal* openupval; // 0x30
-    GCObject* gclist; // 0x38
-    LSTATE_STACKSIZE_ENC<int> stacksize; // 0x40
-    int size_ci; // 0x44
-    TValue* stack_last; // 0x48
-    CallInfo* ci; // 0x50
-    TValue* stack; // 0x58
-    global_State* global; // 0x60
-    TValue* top; // 0x68
-    TValue* base; // 0x70
-    LuaTable* gt; // 0x78
-    LuaTable* finalizers; // 0x80
+    TString* namecall; // 0x28
+    unsigned short nCcalls; // 0x30
+    unsigned short baseCcalls; // 0x32
+    unsigned int cachedslot; // 0x34
+    LuaTable* finalizers; // 0x38
+    UpVal* openupval; // 0x40
+    struct RobloxExtraSpace* userdata; // 0x48
+    LuaTable* gt; // 0x50
+    CallInfo* ci; // 0x58
+    TValue* stack_last; // 0x60
+    global_State* global; // 0x68
+    TValue* stack; // 0x70
+    TValue* base; // 0x78
+    TValue* top; // 0x80
 };
 // clang-format on
 
@@ -364,5 +334,3 @@ union GCObject
 
 LUAI_FUNC lua_State* luaE_newthread(lua_State* L);
 LUAI_FUNC void luaE_freethread(lua_State* L, lua_State* L1, struct lua_Page* page);
-
-#include "client_abi_checks.h"

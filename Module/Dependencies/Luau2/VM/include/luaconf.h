@@ -1,6 +1,8 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
 // This code is based on Lua 5.x implementation licensed under MIT License; see lua_LICENSE.txt for details
 #pragma once
+#include <Roblox/Offsets.hpp>
+#include <Roblox/Encryptions.hpp>
 
 // When debugging complex issues, consider enabling one of these:
 // This will reallocate the stack very aggressively at every opportunity; use this with asan to catch stale stack pointers
@@ -99,11 +101,6 @@
 // number of valid Lua userdata tags
 #ifndef LUA_UTAG_LIMIT
 #define LUA_UTAG_LIMIT 128
-#endif
-
-// internal userdata tag limit (used for udatadirect array sizing)
-#ifndef UTAG_INTERNAL_LIMIT
-#define UTAG_INTERNAL_LIMIT 130
 #endif
 
 // number of valid Lua lightuserdata tags

@@ -41,6 +41,7 @@ namespace Reflection
     std::vector<uintptr_t> get_all_properties_for_instance(uintptr_t instance);
     void ResetLibraryState();
     void TrackCallbackValue(lua_State* L, int instanceIndex, int propertyIndex, int valueIndex);
+    void ClearTrackedCallback(lua_State* L, int instanceIndex, int propertyIndex);
     bool resolve_property(lua_State* L, std::uintptr_t& out_instance, std::uintptr_t& out_prop);
     bool read_scriptable_flag(uintptr_t prop) noexcept;
     void write_scriptable_flag(uintptr_t prop, bool state) noexcept;

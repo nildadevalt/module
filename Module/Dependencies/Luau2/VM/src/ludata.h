@@ -11,11 +11,7 @@
 #define UTAG_PROXY (LUA_UTAG_LIMIT + 1)
 
 // must be updated if more internal tags are added
-#ifndef UTAG_INTERNAL_LIMIT
 #define UTAG_INTERNAL_LIMIT (UTAG_PROXY + 1)
-#else
-static_assert(UTAG_INTERNAL_LIMIT == UTAG_PROXY + 1, "userdata tag limit does not match the client");
-#endif
 
 // userdata larger than 16 bytes will be extended to guarantee 16 byte alignment of subsequent blocks
 #define sizeudata(len) (offsetof(Udata, data) + (len > 16 ? ((len + 15) & ~15) : len))

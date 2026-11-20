@@ -122,8 +122,24 @@ private:
     // if exp then block {elseif exp then block} [else block] end
     AstStat* parseIf();
 
+    // (`if' | `elseif') (`local' | `const') binding `=' exp then block ... end -- parses an entire `if local`/`if const`
+    AstStat* parseIfLocalCondition(const Location& start);
+
+    // Parse the trailing `{elseif exp then block} [else block] end` shared by `parseIf` and `parseIfLocalCondition`
+    AstStat* parseElseBody(
+        const Location& start,
+        const Lexeme& matchThen,
+        AstStatBlock* thenbody,
+        Location& end,
+        std::optional<Location>& elseLocation
+    );
+
     // while exp do block end
     AstStat* parseWhile();
+
+    // while `local' binding `=' exp do block end -- parses an entire `while local`.
+    // `start` is the location of the already-consumed `while` keyword; the current lexeme is `local`.
+    AstStat* parseWhileLocalCondition(const Location& start);
 
     // repeat block until exp
     AstStat* parseRepeat();
@@ -191,7 +207,11 @@ private:
     // type Name `=' Type
     AstStat* parseTypeAlias(const Location& start, bool exported, Position typeKeywordPosition);
 
-    AstStat* parseClassStat(const Location& start, bool exported);
+    AstStat* parseClassStat(const Location& start, AstStatClass::DeclModifier declModifier, bool open);
+
+    // True when the current lexeme begins a class declaration: `class Name` or `open class Name`. `class` and `open` are
+    // contextual keywords, so `local class = 5` must still parse as a binding list.
+    bool atClassKeyword();
 
     // type function Name ... end
     AstStat* parseTypeFunction(const Location& start, bool exported, Position typeKeywordPosition);
@@ -355,6 +375,12 @@ private:
     // TODO: Add grammar rules here?
     AstExpr* parseIfElseExpr();
 
+    // (`if' | `elseif') (`local' | `const') binding `=' exp then exp ... else exp -- parses an entire `if local`/`if const` expression
+    AstExpr* parseIfElseExprLocalCondition(const Location& start);
+
+    // Parse the trailing `else exp` / `elseif ...` shared by `parseIfElseExpr` and `parseIfElseExprLocalCondition`
+    AstExpr* parseIfElseExprTail(bool& hasElse, bool& isElseIf);
+
     // stringinterp ::= <INTERP_BEGIN> exp {<INTERP_MID> exp} <INTERP_END>
     AstExpr* parseInterpString();
 
@@ -449,8 +475,6 @@ private:
         ...
     ) LUAU_PRINTF_ATTR(5, 6);
     AstExprError* reportExprError(const Location& location, const AstArray<AstExpr*>& expressions, const char* format, ...) LUAU_PRINTF_ATTR(4, 5);
-    AstStatClass* getMatchingClass(AstExpr* expr);
-    bool isExprLValue(AstExpr* expr);
     AstExprError* reportLValueError(AstExpr* expr);
     AstTypeError* reportTypeError(const Location& location, const AstArray<AstType*>& types, const char* format, ...) LUAU_PRINTF_ATTR(4, 5);
     // `parseErrorLocation` is associated with the parser error
@@ -543,9 +567,12 @@ private:
     std::vector<Function> functionStack;
     size_t typeFunctionDepth = 0;
 
+    // True while parsing the body of a class method, which is the only context where `._x` / `:_x` denotes a private member access. Set exclusively
+    // by parseClassStat.
+    bool inClassMethodBody = false;
+
     DenseHashMap<AstName, AstLocal*> localMap;
     std::vector<AstLocal*> localStack;
-    DenseHashMap<AstName, AstStatClass*> classesWithinModule{{}};
 
     std::vector<ParseError> parseErrors;
 

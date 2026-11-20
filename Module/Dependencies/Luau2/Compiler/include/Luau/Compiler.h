@@ -6,6 +6,8 @@
 #include "Luau/StringUtils.h"
 #include "Luau/Common.h"
 
+#include <exception>
+
 namespace Luau
 {
 class AstNameTable;
@@ -107,7 +109,6 @@ std::string compile(
 void setCompileConstantNil(CompileConstant* constant);
 void setCompileConstantBoolean(CompileConstant* constant, bool b);
 void setCompileConstantNumber(CompileConstant* constant, double n);
-void setCompileConstantInteger64(CompileConstant* constant, int64_t l);
 void setCompileConstantVector(CompileConstant* constant, float x, float y, float z, float w);
 void setCompileConstantVectord(CompileConstant* constant, double x, double y, double z, double w);
 void setCompileConstantString(CompileConstant* constant, const char* s, size_t l);

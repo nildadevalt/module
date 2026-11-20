@@ -1276,6 +1276,14 @@ namespace Script
         }
 
         if (hasBytecode) {
+            // getscriptbytecode() normalises the leading bytecode-version byte
+            // before returning it. debUNC compares our hash against
+            // crypt.hash(getscriptbytecode(script), "sha384"), so hash the very
+            // same bytes getscriptbytecode returns.
+            const std::uint8_t targetVersion = GetTargetBytecodeVersion();
+            const std::uint8_t scriptVersion = static_cast<std::uint8_t>(bytecode[0]);
+            if (scriptVersion != targetVersion && scriptVersion != 0)
+                bytecode[0] = static_cast<char>(targetVersion);
             rawData = std::move(bytecode);
         }
         else {

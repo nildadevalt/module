@@ -149,7 +149,11 @@ namespace module::core::environment
 LUAU_FASTFLAG(LuauCIProto)
 void ApplyLuauFlags()
 {
+    // The dump marks its FFlags read-only, so writing is only legal when the
+    // vendored Luau was built with writable flags.
+#if defined(LUAU_FFLAG_WRITABLE)
     FFlag::LuauCIProto.value = true;
+#endif
 }
 
 static void ClearInstanceFastPaths(lua_State* L)

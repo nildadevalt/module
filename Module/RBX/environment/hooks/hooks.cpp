@@ -280,6 +280,15 @@ int newindex_hook(lua_State* L)
     size_t len = 0;
     const char* str = lua_tolstring(L, 2, &len);
     std::string key = str ? sanitize_key(str, len) : std::string();
+
+    // Record callback-property assignments (e.g. game.OnClose = func) so
+    // getcallbackvalue can return them for instances whose native callback
+    // chain is not readable (DataModel in particular).
+    if (lua_isfunction(L, 3))
+        Reflection::TrackCallbackValue(L, 1, 2, 3);
+    else if (lua_isnil(L, 3))
+        Reflection::ClearTrackedCallback(L, 1, 2);
+
     Reflection::ScopedScriptable scopedScriptable(L, 1, key.c_str());
     return original_newindex(L);
 }

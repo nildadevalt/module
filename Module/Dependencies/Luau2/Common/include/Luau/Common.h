@@ -131,16 +131,81 @@ struct FValueVersionSetter
 
 } // namespace Luau
 
-#define LUAU_FASTFLAG(flag) \
+namespace Luau
+{
+template<bool V>
+struct FConstant
+{
+    static constexpr bool value = V;
+    constexpr operator bool() const { return V; }
+};
+}
+
+#define LUAU_FLAG_EXPAND(x) x
+#define LUAU_FLAG_SECOND(a, b, ...) b
+#define LUAU_FLAG_PROBE(...) LUAU_FLAG_EXPAND(LUAU_FLAG_SECOND(__VA_ARGS__, 0, 0))
+#define LUAU_FLAG_ISPINNED(flag) LUAU_FLAG_PROBE(LUAU_FLAG_PINNED_##flag)
+#define LUAU_FASTFLAG(flag) LUAU_FASTFLAG_SEL(LUAU_FLAG_ISPINNED(flag), flag)
+#define LUAU_FASTFLAG_SEL(pinned, flag) LUAU_FASTFLAG_SEL2(pinned, flag)
+#define LUAU_FASTFLAG_SEL2(pinned, flag) LUAU_FASTFLAG_##pinned(flag)
+#define LUAU_FASTFLAG_0(flag) \
     namespace FFlag \
     { \
     extern Luau::FValue<bool> flag; \
     }
-#define LUAU_FASTFLAGVARIABLE(flag) \
+#define LUAU_FASTFLAG_1(flag)
+#define LUAU_FASTFLAGVARIABLE(flag) LUAU_FASTFLAGVARIABLE_SEL(LUAU_FLAG_ISPINNED(flag), flag)
+#define LUAU_FASTFLAGVARIABLE_SEL(pinned, flag) LUAU_FASTFLAGVARIABLE_SEL2(pinned, flag)
+#define LUAU_FASTFLAGVARIABLE_SEL2(pinned, flag) LUAU_FASTFLAGVARIABLE_##pinned(flag)
+#define LUAU_FASTFLAGVARIABLE_0(flag) \
     namespace FFlag \
     { \
     Luau::FValue<bool> flag(#flag, false, false); \
     }
+#define LUAU_FASTFLAGVARIABLE_1(flag)
+
+#define LUAU_FLAG_PINNED_LuauCIProto ~, 1
+#define LUAU_FLAG_PINNED_LuauDirectFieldGet ~, 1
+#define LUAU_FLAG_PINNED_LuauUdataDirectAccess6 ~, 1
+#define LUAU_FLAG_PINNED_LuauUdataMetatablePinned ~, 1
+#define LUAU_FLAG_PINNED_LuauAutoStack ~, 1
+#define LUAU_FLAG_PINNED_LuauCloneTableFix ~, 1
+#define LUAU_FLAG_PINNED_LuauVirtualBcBuilder ~, 1
+#define LUAU_FLAG_PINNED_LuauStoreConstKeywordBegin ~, 1
+#define LUAU_FLAG_PINNED_LuauTrackPrefixLocal ~, 1
+#define LUAU_FLAG_PINNED_LuauAllowGlobalDeclarationToBeCalledClass ~, 1
+#define LUAU_FLAG_PINNED_LuauDisallowExternClassInTypeDefinitions ~, 1
+#define LUAU_FLAG_PINNED_LuauFrozenMetaButterfly ~, 1
+#define LUAU_FLAG_PINNED_LuauNewPointerEncode ~, 1
+#define LUAU_FLAG_PINNED_LuauTableArrayShrinkOrder ~, 1
+#define LUAU_FLAG_PINNED_LuauEasyStateInit ~, 1
+#define LUAU_FLAG_PINNED_LuauFastpcall ~, 1
+#define LUAU_FLAG_PINNED_LuauLoadRemapOptionalUserdata ~, 1
+#define LUAU_FLAG_PINNED_LuauCostModel ~, 1
+#define LUAU_FLAG_PINNED_LuauEmitCallFeedback ~, 1
+
+namespace FFlag
+{
+inline constexpr Luau::FConstant<true> LuauCIProto{};
+inline constexpr Luau::FConstant<true> LuauDirectFieldGet{};
+inline constexpr Luau::FConstant<false> LuauUdataDirectAccess6{};
+inline constexpr Luau::FConstant<true> LuauUdataMetatablePinned{};
+inline constexpr Luau::FConstant<true> LuauAutoStack{};
+inline constexpr Luau::FConstant<true> LuauCloneTableFix{};
+inline constexpr Luau::FConstant<true> LuauVirtualBcBuilder{};
+inline constexpr Luau::FConstant<true> LuauStoreConstKeywordBegin{};
+inline constexpr Luau::FConstant<true> LuauTrackPrefixLocal{};
+inline constexpr Luau::FConstant<true> LuauAllowGlobalDeclarationToBeCalledClass{};
+inline constexpr Luau::FConstant<true> LuauDisallowExternClassInTypeDefinitions{};
+inline constexpr Luau::FConstant<true> LuauFrozenMetaButterfly{};
+inline constexpr Luau::FConstant<true> LuauNewPointerEncode{};
+inline constexpr Luau::FConstant<true> LuauTableArrayShrinkOrder{};
+inline constexpr Luau::FConstant<true> LuauEasyStateInit{};
+inline constexpr Luau::FConstant<true> LuauFastpcall{};
+inline constexpr Luau::FConstant<true> LuauLoadRemapOptionalUserdata{};
+inline constexpr Luau::FConstant<true> LuauCostModel{};
+inline constexpr Luau::FConstant<true> LuauEmitCallFeedback{};
+}
 #define LUAU_FASTINT(flag) \
     namespace FInt \
     { \
@@ -173,9 +238,13 @@ struct FValueVersionSetter
     Luau::FValue<int> flag(#flag, def, true); \
     }
 
-#define LUAU_FLAGVERSION(flag, version) \
+#define LUAU_FLAGVERSION(flag, version) LUAU_FLAGVERSION_SEL(LUAU_FLAG_ISPINNED(flag), flag, version)
+#define LUAU_FLAGVERSION_SEL(pinned, flag, version) LUAU_FLAGVERSION_SEL2(pinned, flag, version)
+#define LUAU_FLAGVERSION_SEL2(pinned, flag, version) LUAU_FLAGVERSION_##pinned(flag, version)
+#define LUAU_FLAGVERSION_0(flag, version) \
     static_assert((version) != 0, "LUAU_FLAGVERSION version cannot be 0"); \
     static Luau::FValueVersionSetter flag##_VersionSetter(#flag, version);
+#define LUAU_FLAGVERSION_1(flag, version)
 
 #if defined(__GNUC__)
 #define LUAU_PRINTF_ATTR(fmt, arg) __attribute__((format(printf, fmt, arg)))

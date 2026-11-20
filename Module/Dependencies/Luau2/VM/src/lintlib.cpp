@@ -1,6 +1,8 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
 #include "lualib.h"
 
+#include <errno.h>
+
 #include "lcommon.h"
 #include "lnumutils.h"
 #include "lobject.h"
@@ -40,8 +42,14 @@ static int int64_fromstring(lua_State* L)
     int base = luaL_optinteger(L, 2, 10);
     luaL_argcheck(L, 2 <= base && base <= 36, 2, "base out of range");
 
-    int64_t result;
-    if (luaO_str2l(s, &result, base))
+    int64_t result = 0;
+    char* End = nullptr;
+    errno = 0;
+    const long long Parsed = strtoll(s, &End, base);
+    const bool Ok = End != s && errno != ERANGE;
+    if (Ok)
+        result = Parsed;
+    if (Ok)
         lua_pushinteger64(L, result);
     else
         lua_pushnil(L);
